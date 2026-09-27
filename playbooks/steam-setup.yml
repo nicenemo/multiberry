@@ -1,0 +1,116 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install Steam and Proton Runtime Stack
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Install Steam & Proton Dependencies
+    # -------------------------------------------------------------------------
+    - name: Install Steam and Proton support tooling
+      community.general.pacman:
+        name:
+          - steam
+          - vulkan-icd-loader
+          - lib32-vulkan-icd-loader
+          - lib32-libpng
+          - lib32-gnutls
+          - lib32-libldap
+          - protontricks
+          - protonup-qt
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. Steam Directory Hierarchy Setup
+    # -------------------------------------------------------------------------
+    - name: Create compatibilitytools.d folder for all Steam users
+      ansible.builtin.file:
+        path: "/home/{{ item }}/.local/share/Steam/compatibilitytools.d"
+        state: directory
+        owner: "{{ item }}"
+        group: "{{ item }}"
+        mode: '0755'
+        recurse: true
+      loop: "{{ steam_users }}"
+
+    # -------------------------------------------------------------------------
+    # 3. Dedicated External Steam Library Directories
+    # -------------------------------------------------------------------------
+    - name: Ensure dedicated Steam library folder exists for msfs_user on NVMe
+      ansible.builtin.file:
+        path: /opt/fs2024/steamapps
+        state: directory
+        owner: "{{ msfs_user }}"
+        group: games
+        mode: '0775'
+
+    - name: Ensure dedicated Steam library folder exists for secondary_user on SATA SSD
+      ansible.builtin.file:
+        path: /opt/games/steamapps
+        state: directory
+        owner: "{{ secondary_user }}"
+        group: games
+        mode: '0775'
+
+    # -------------------------------------------------------------------------
+    # 4. Automate Steam Library Configuration (Bypasses home-dir library)
+    # -------------------------------------------------------------------------
+    - name: Ensure Steam config directory exists for msfs_user
+      ansible.builtin.file:
+        path: "/home/{{ msfs_user }}/.local/share/Steam/config"
+        state: directory
+        owner: "{{ msfs_user }}"
+        group: "{{ msfs_user }}"
+        mode: '0755'
+
+    - name: Ensure Steam config directory exists for secondary_user
+      ansible.builtin.file:
+        path: "/home/{{ secondary_user }}/.local/share/Steam/config"
+        state: directory
+        owner: "{{ secondary_user }}"
+        group: "{{ secondary_user }}"
+        mode: '0755'
+
+    - name: Configure external Steam library path for msfs_user
+      ansible.builtin.copy:
+        dest: "/home/{{ msfs_user }}/.local/share/Steam/config/libraryfolders.vdf"
+        content: |
+          "libraryfolders"
+          {
+            "1"
+            {
+              "path"    "/opt/fs2024"
+              "label"   ""
+            }
+          }
+        owner: "{{ msfs_user }}"
+        group: "{{ msfs_user }}"
+        mode: '0644'
+
+    - name: Configure external Steam library path for secondary_user
+      ansible.builtin.copy:
+        dest: "/home/{{ secondary_user }}/.local/share/Steam/config/libraryfolders.vdf"
+        content: |
+          "libraryfolders"
+          {
+            "1"
+            {
+              "path"    "/opt/games"
+              "label"   ""
+            }
+          }
+        owner: "{{ secondary_user }}"
+        group: "{{ secondary_user }}"
+        mode: '0644'
+
+    # -------------------------------------------------------------------------
+    # 5. Deploy Steam Environment Flags
+    # -------------------------------------------------------------------------
+    - name: Deploy Steam GTX 1080 environment config
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/80-steam-gtx1080.conf"
+        dest: /etc/environment.d/80-steam-gtx1080.conf
+        owner: root
+        group: root
+        mode: '0644'

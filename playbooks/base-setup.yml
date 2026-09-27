@@ -1,0 +1,196 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Apply Base System Optimizations, Users, and Dynamic Storage
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Package Management & Keyring Maintenance
+    # -------------------------------------------------------------------------
+    - name: Initialize pacman keyring if missing or unpopulated
+      ansible.builtin.command:
+        cmd: pacman-key --init
+        creates: /etc/pacman.d/gnupg/trustdb.gpg
+
+    - name: Populate default Arch and CachyOS keyrings
+      ansible.builtin.command:
+        cmd: pacman-key --populate archlinux cachyos
+      changed_when: false
+
+    - name: Clean pacman sync databases and package cache
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/pacman/sync
+        - /var/cache/pacman/pkg
+
+    - name: Re-create clean pacman directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - /var/lib/pacman/sync
+        - /var/cache/pacman/pkg
+
+    - name: Force refresh pacman databases and update keyrings
+      ansible.builtin.command:
+        cmd: pacman -Sy --noconfirm archlinux-keyring cachyos-keyring
+      changed_when: true
+
+    - name: Upgrade all system packages
+      ansible.builtin.command:
+        cmd: pacman -Syu --noconfirm
+      register: pacman_upgrade_result
+      changed_when: "'there is nothing to do' not in pacman_upgrade_result.stdout"
+
+    - name: Install common packages
+      community.general.pacman:
+        name: "{{ common_packages | default([]) }}"
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. System Groups & User Provisioning (ONLY games group used)
+    # -------------------------------------------------------------------------
+    - name: Create required system groups
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - wheel
+        - input
+        - games
+        - audio
+        - video
+        - render
+
+    - name: Ensure primary user belongs to the games group
+      ansible.builtin.user:
+        name: "{{ msfs_user }}"
+        groups: games
+        append: true
+
+    - name: Check if secondary user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ secondary_user }}"
+      register: getent_user
+      ignore_errors: true
+
+    - name: Generate random password for new user
+      ansible.builtin.set_fact:
+        generated_user_password: "{{ lookup('ansible.builtin.password', '/dev/null length=20 chars=ascii_letters,digits') }}"
+      when: getent_user.failed | default(false)
+
+    - name: Provision secondary user with games group access
+      ansible.builtin.user:
+        name: "{{ secondary_user }}"
+        shell: /bin/bash
+        groups: wheel,input,games,audio,video,render
+        append: true
+        password: "{{ generated_user_password | password_hash('sha512') }}"
+        state: present
+      when: getent_user.failed | default(false)
+
+    # -------------------------------------------------------------------------
+    # 3. Kernel Command Line (Limine) Optimizations
+    # -------------------------------------------------------------------------
+    - name: Ensure /etc/kernel/cmdline exists
+      ansible.builtin.file:
+        path: /etc/kernel/cmdline
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Apply high-performance kernel parameters
+      ansible.builtin.lineinfile:
+        path: /etc/kernel/cmdline
+        backrefs: true
+        regexp: '^(.*)$'
+        line: '\1 mitigations=off pci=rebar split_lock_detect=off processor.max_cstate=1'
+      notify: Regenerate Limine entries
+
+    # -------------------------------------------------------------------------
+    # 4. Global System Environment & Profile Config
+    # -------------------------------------------------------------------------
+    - name: Ensure /etc/environment.d exists
+      ansible.builtin.file:
+        path: /etc/environment.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Set Neovim as global default editor
+      ansible.builtin.copy:
+        dest: /etc/profile.d/editor.sh
+        content: |
+          export EDITOR=nvim
+          export VISUAL=nvim
+        owner: root
+        group: root
+        mode: '0644'
+
+    # -------------------------------------------------------------------------
+    # 5. Storage Partitioning, Formatting & Mounts
+    # -------------------------------------------------------------------------
+    - name: Read drive info for target storage devices
+      community.general.parted:
+        device: "{{ item.device }}"
+        unit: MiB
+      register: drive_infos
+      loop: "{{ additional_drives | default([]) }}"
+
+    - name: Ensure partition table and partition exist if unpartitioned
+      community.general.parted:
+        device: "{{ item.item.device }}"
+        label: gpt
+        number: 1
+        part_type: primary
+        state: present
+      loop: "{{ drive_infos.results }}"
+      when: item.partitions | length == 0
+
+    - name: Format partitions
+      community.general.filesystem:
+        fstype: "{{ item.fstype }}"
+        dev: "{{ item.partition }}"
+      loop: "{{ additional_drives | default([]) }}"
+
+    - name: Create mount directories
+      ansible.builtin.file:
+        path: "{{ item.mount_path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group | default(item.owner) }}"
+        mode: "{{ item.mode | default('0775') }}"
+      loop: "{{ additional_drives | default([]) }}"
+
+    - name: Mount drives and update /etc/fstab
+      ansible.posix.mount:
+        path: "{{ item.mount_path }}"
+        src: "{{ item.partition }}"
+        fstype: "{{ item.fstype }}"
+        opts: "{{ item.opts }}"
+        state: mounted
+      loop: "{{ additional_drives | default([]) }}"
+
+    - name: Enforce mount ownership and group permissions
+      ansible.builtin.file:
+        path: "{{ item.mount_path }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group | default(item.owner) }}"
+        mode: "{{ item.mode | default('0775') }}"
+      loop: "{{ additional_drives | default([]) }}"
+
+  handlers:
+    - name: Regenerate Limine entries
+      ansible.builtin.command: limine-entry-tool
+      changed_when: true

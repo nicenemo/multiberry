@@ -1,0 +1,17 @@
+#!/usr/bin/env ansible-playbook
+---
+# =============================================================================
+# Master Provisioning Playbook
+# =============================================================================
+
+- name: Import Base Setup
+  ansible.builtin.import_playbook: playbooks/base-setup.yml
+
+- name: Import NVIDIA GTX 1080 Setup
+  ansible.builtin.import_playbook: playbooks/nvidia1080-setup.yml
+
+- name: Import Steam & Proton Setup
+  ansible.builtin.import_playbook: playbooks/steam-setup.yml
+
+- name: Import wlsunset Setup
+  ansible.builtin.import_playbook: playbooks/wlsunset-setup.yml

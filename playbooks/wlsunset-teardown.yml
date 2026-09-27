@@ -1,0 +1,15 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown wlsunset
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    - name: Remove wlsunset package
+      ansible.builtin.command:
+        cmd: "pacman -Rc --noconfirm wlsunset"
+      register: pacman_remove_wlsunset
+      changed_when: "'removing' in pacman_remove_wlsunset.stdout"
+      failed_when:
+        - pacman_remove_wlsunset.rc != 0
+        - "'target not found' not in pacman_remove_wlsunset.stderr"

@@ -1,0 +1,25 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Remove Managed Node Ansible User
+  hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    ansible_user: "{{ bootstrap_user }}"
+    ansible_ssh_private_key_file: ""
+
+  tasks:
+    - name: Remove passwordless sudoers file for management user
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ ansible_management_user }}"
+        state: absent
+
+    - name: Remove management user account and home directory
+      ansible.builtin.user:
+        name: "{{ ansible_management_user }}"
+        state: absent
+        remove: true
+        force: true
+
+    - name: Flush SSH connections
+      ansible.builtin.meta: reset_connection

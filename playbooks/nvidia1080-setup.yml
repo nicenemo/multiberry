@@ -1,0 +1,170 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Setup NVIDIA GTX 1080 (Pascal) Drivers
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. System & Repository Preparation
+    # -------------------------------------------------------------------------
+    - name: Ensure multilib repository is enabled in pacman.conf
+      ansible.builtin.replace:
+        path: /etc/pacman.conf
+        regexp: '^#\s*(\[multilib\])\n#\s*(Include\s*=\s*/etc/pacman\.d/mirrorlist)'
+        replace: '\1\n\2'
+
+    - name: Remove conflicting CachyOS / CHWD mkinitcpio drop-in configurations
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/mkinitcpio.conf.d/10-chwd.conf
+        - /etc/mkinitcpio.conf.d/10-chwd-kms.conf
+
+    - name: Check for standard nvidia-utils conflicting package
+      ansible.builtin.shell: pacman -Qq | grep -x "nvidia-utils"
+      register: check_std_nvidia
+      changed_when: false
+      failed_when: false
+
+    - name: Remove standard nvidia-utils without breaking dependencies
+      ansible.builtin.command: pacman -Rdd --noconfirm nvidia-utils
+      when: check_std_nvidia.rc == 0
+      changed_when: true
+
+    # -------------------------------------------------------------------------
+    # 2. Package Installation & DKMS Build
+    # -------------------------------------------------------------------------
+    - name: Get running kernel version
+      ansible.builtin.command: uname -r
+      register: kernel_version
+      changed_when: false
+
+    - name: Install NVIDIA 580xx DKMS & Utilities
+      community.general.pacman:
+        name:
+          - linux-cachyos-lts-headers
+          - nvidia-580xx-dkms
+          - nvidia-580xx-utils
+          - lib32-nvidia-580xx-utils
+        state: present
+
+    - name: Ensure DKMS autoinstall builds modules for running kernel
+      ansible.builtin.command: dkms autoinstall -k {{ kernel_version.stdout }}
+      changed_when: true
+
+    - name: Verify NVIDIA kernel module file physically exists on disk
+      ansible.builtin.shell: "find /usr/lib/modules/{{ kernel_version.stdout }}/ -name 'nvidia.ko*' | grep -q nvidia"
+      register: nvidia_file_check
+      failed_when: nvidia_file_check.rc != 0
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. Driver & KMS Configuration
+    # -------------------------------------------------------------------------
+    - name: Ensure NVIDIA is not blacklisted from previous teardown
+      ansible.builtin.file:
+        path: /etc/modprobe.d/blacklist-nvidia.conf
+        state: absent
+
+    - name: Ensure Nouveau blacklist is present
+      ansible.builtin.copy:
+        content: |
+          blacklist nouveau
+          options nouveau modeset=0
+          install nouveau /bin/false
+        dest: /etc/modprobe.d/blacklist-nouveau.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Set NVIDIA Modprobe Options
+      ansible.builtin.copy:
+        content: |
+          options nvidia-drm modeset=1 fbdev=1
+          options nvidia NVreg_PreserveVideoMemoryAllocations=1
+        dest: /etc/modprobe.d/nvidia.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy GTX 1080 environment configuration
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/50-nvidia-gtx1080.conf"
+        dest: /etc/environment.d/50-nvidia-gtx1080.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Ensure NVIDIA modules auto-load on boot
+      ansible.builtin.copy:
+        content: |
+          nvidia
+          nvidia_modeset
+          nvidia_drm
+          nvidia_uvm
+        dest: /etc/modules-load.d/nvidia.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Clean Nouveau modules from mkinitcpio.conf
+      ansible.builtin.replace:
+        path: /etc/mkinitcpio.conf
+        regexp: '\b(nouveau)\b\s*'
+        replace: ''
+
+    - name: Ensure NVIDIA DRM modules are included early in mkinitcpio.conf
+      ansible.builtin.replace:
+        path: /etc/mkinitcpio.conf
+        regexp: '^MODULES=\((.*?)\)'
+        replace: 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm \1)'
+      when: "'nvidia' not in lookup('file', '/etc/mkinitcpio.conf')"
+
+    - name: Rebuild initramfs images
+      ansible.builtin.command: mkinitcpio -P
+      changed_when: true
+
+    - name: Update Limine bootloader entries
+      ansible.builtin.command: limine-update
+      register: limine_out
+      failed_when: false
+      changed_when: limine_out.rc == 0
+
+    # -------------------------------------------------------------------------
+    # 4. Reboot
+    # -------------------------------------------------------------------------
+    - name: Reboot system to activate NVIDIA drivers cleanly
+      ansible.builtin.reboot:
+        msg: "Rebooting to initialize NVIDIA GTX 1080 proprietary drivers"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 2
+        post_reboot_delay: 5
+        test_command: uptime
+
+    # -------------------------------------------------------------------------
+    # 5. Strict Validations
+    # -------------------------------------------------------------------------
+    - name: Verify Nouveau driver is completely absent
+      ansible.builtin.shell: "! grep -E '^nouveau ' /proc/modules"
+      register: nouveau_absent_verify
+      failed_when: nouveau_absent_verify.rc != 0
+      changed_when: false
+
+    - name: Verify NVIDIA kernel modules are loaded
+      ansible.builtin.shell: grep -E "^nvidia " /proc/modules
+      register: nvidia_verify
+      failed_when: nvidia_verify.rc != 0
+      changed_when: false
+
+    - name: Verify DRM active connectors
+      ansible.builtin.shell: cat /sys/class/drm/*/status 2>/dev/null | grep -x "connected"
+      register: active_displays
+      failed_when: active_displays.rc != 0
+      changed_when: false
+
+    - name: Display success status
+      ansible.builtin.debug:
+        msg: "SUCCESS: Reboot complete. NVIDIA 580xx drivers active and display DRM verified."

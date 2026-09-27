@@ -1,0 +1,60 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Steam and Proton Stack
+  hosts: gaming_box
+  become: true
+
+  vars:
+    target_steam_packages:
+      - steam
+      - protontricks
+      - protonup-qt
+      - lib32-vulkan-icd-loader
+      - lib32-libpng
+      - lib32-gnutls
+      - lib32-libldap
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Environment & User Config Cleanup
+    # -------------------------------------------------------------------------
+    - name: Remove Steam environment config
+      ansible.builtin.file:
+        path: /etc/environment.d/80-steam-gtx1080.conf
+        state: absent
+
+    - name: Remove compatibilitytools.d and VDF library configs for all Steam users
+      ansible.builtin.file:
+        path: "{{ item[1] }}"
+        state: absent
+      loop: "{{ steam_users | product([
+        '/.local/share/Steam/compatibilitytools.d',
+        '/.local/share/Steam/config/libraryfolders.vdf'
+      ]) | list }}"
+
+    - name: Remove external Steam library directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/fs2024/steamapps
+        - /opt/games/steamapps
+
+    # -------------------------------------------------------------------------
+    # 2. Package Removal
+    # -------------------------------------------------------------------------
+    - name: Query installed Steam packages
+      ansible.builtin.command:
+        cmd: "pacman -Qq {{ target_steam_packages | join(' ') }}"
+      register: installed_steam_check
+      changed_when: false
+      failed_when: false
+
+    - name: Remove Steam packages via cascade removal
+      ansible.builtin.command:
+        cmd: "pacman -Rcn --noconfirm {{ installed_steam_check.stdout_lines | join(' ') }}"
+      register: pacman_remove_steam
+      changed_when: "'removing' in pacman_remove_steam.stdout"
+      when:
+        - installed_steam_check.stdout_lines is defined
+        - installed_steam_check.stdout_lines | length > 0

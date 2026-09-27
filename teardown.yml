@@ -1,0 +1,17 @@
+#!/usr/bin/env ansible-playbook
+---
+# =============================================================================
+# Master Teardown Playbook
+# =============================================================================
+
+- name: Import wlsunset Teardown
+  ansible.builtin.import_playbook: playbooks/wlsunset-teardown.yml
+
+- name: Import Steam & Proton Teardown
+  ansible.builtin.import_playbook: playbooks/steam-teardown.yml
+
+- name: Import NVIDIA GTX 1080 Teardown
+  ansible.builtin.import_playbook: playbooks/nvidia1080-teardown.yml
+
+- name: Import Base System Teardown
+  ansible.builtin.import_playbook: playbooks/base-teardown.yml

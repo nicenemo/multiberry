@@ -1,0 +1,33 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Bootstrap Managed Nodes
+  hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    ansible_user: "{{ bootstrap_user }}"
+    ansible_ssh_private_key_file: ""
+
+  tasks:
+    - name: Create Ansible management user on target node
+      ansible.builtin.user:
+        name: "{{ ansible_management_user }}"
+        groups: wheel
+        append: true
+        shell: /bin/bash
+
+    - name: Add Ansible control node public key for SSH access
+      ansible.posix.authorized_key:
+        user: "{{ ansible_management_user }}"
+        state: present
+        key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_ed25519_ansible.pub') }}"
+
+    - name: Configure passwordless sudo
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ ansible_management_user }}"
+        content: "{{ ansible_management_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: Flush SSH connection sockets after bootstrap
+      ansible.builtin.meta: reset_connection

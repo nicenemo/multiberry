@@ -1,0 +1,36 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Sanitize and Wipe All Additional Storage Devices
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Unmount and Remove from /etc/fstab
+    # -------------------------------------------------------------------------
+    - name: Ensure all additional drive partitions are unmounted and removed from /etc/fstab
+      ansible.posix.mount:
+        path: "{{ item.mount_path }}"
+        state: absent
+      loop: "{{ additional_drives | default([]) | reverse | list }}"
+
+    - name: Remove drive mount directories under /opt
+      ansible.builtin.file:
+        path: "{{ item.mount_path }}"
+        state: absent
+      loop: "{{ additional_drives | default([]) | reverse | list }}"
+
+    # -------------------------------------------------------------------------
+    # 2. Wipe Filesystem Signatures and Partition Tables
+    # -------------------------------------------------------------------------
+    - name: Wipe all filesystem and partition table signatures on target drives
+      ansible.builtin.command:
+        cmd: "wipefs -a {{ item.device }}"
+      loop: "{{ additional_drives | default([]) }}"
+      changed_when: true
+
+    - name: Zero out partition table block headers on target drives
+      ansible.builtin.command:
+        cmd: "dd if=/dev/zero of={{ item.device }} bs=1M count=10 status=none"
+      loop: "{{ additional_drives | default([]) }}"
+      changed_when: true

@@ -1,0 +1,68 @@
+all:
+  vars:
+    bootstrap_user: kruse
+    ansible_management_user: myansibleuser
+    ansible_user: "{{ ansible_management_user }}"
+    ansible_python_interpreter: /usr/bin/python3
+    common_packages:
+      - neovim
+      - tmux
+      - btop
+      - wget
+      - networkmanager
+
+  children:
+    gaming_box:
+      hosts:
+        multiberry:
+          ansible_host: 192.168.105.101
+          msfs_user: kruse
+          secondary_user: giesen
+          steam_users:
+            - kruse
+            - giesen
+          msfs_cache_path: "/opt/fs2024/msfs_rolling_cache"
+          additional_drives:
+            - device: "/dev/nvme1n1"
+              partition: "/dev/nvme1n1p1"
+              mount_path: "/opt/fs2024"
+              fstype: "btrfs"
+              opts: "defaults,noatime,compress=zstd"
+              owner: "kruse"
+              group: "kruse"
+              mode: "0755"
+              model: "NVMe Secondary SSD"
+              capacity: "1TB"
+
+            - device: "/dev/sdb"
+              partition: "/dev/sdb1"
+              mount_path: "/opt/games"
+              fstype: "btrfs"
+              opts: "defaults,noatime,compress=zstd"
+              owner: "root"
+              group: "games"
+              mode: "2775"  # SGID: zorgt dat nieuwe mappen/bestanden de 'games' groep erven
+              model: "Samsung SSD 860"
+              capacity: "1TB (931.51 GiB)"
+
+            - device: "/dev/sdc"
+              partition: "/dev/sdc1"
+              mount_path: "/opt/data"
+              fstype: "ext4"
+              opts: "defaults,noatime"
+              owner: "kruse"
+              group: "kruse"
+              mode: "0755"
+              model: "Samsung SSD 840"
+              capacity: "256GB (238.47 GiB)"
+
+            - device: "/dev/sda"
+              partition: "/dev/sda1"
+              mount_path: "/opt/backups"
+              fstype: "ext4"
+              opts: "defaults,noatime"
+              owner: "giesen"
+              group: "giesen"
+              mode: "0755"
+              model: "WDC WD20EZRX-00D"
+              capacity: "2TB"

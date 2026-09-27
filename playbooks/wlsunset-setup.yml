@@ -1,0 +1,11 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install wlsunset
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    - name: Install wlsunset package
+      community.general.pacman:
+        name: wlsunset
+        state: present
