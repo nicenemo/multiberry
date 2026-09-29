@@ -1,0 +1,82 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Optimized CachyOS Kernel & Revert to LTS
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Package Removal
+    # -------------------------------------------------------------------------
+    - name: Ensure linux-cachyos-lts kernel and headers are present before removing main kernel
+      community.general.pacman:
+        name:
+          - linux-cachyos-lts
+          - linux-cachyos-lts-headers
+        state: present
+
+    - name: Remove main optimized CachyOS kernel and headers
+      community.general.pacman:
+        name:
+          - linux-cachyos
+          - linux-cachyos-headers
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # 2. Kernel Command Line Revert
+    # -------------------------------------------------------------------------
+    - name: Revert kernel parameters from /etc/kernel/cmdline
+      ansible.builtin.replace:
+        path: /etc/kernel/cmdline
+        regexp: '\s*(mitigations=off|pci=rebar|split_lock_detect=off|processor\.max_cstate=1)'
+        replace: ''
+
+    # -------------------------------------------------------------------------
+    # 3. Initramfs & Limine Update
+    # -------------------------------------------------------------------------
+    - name: Rebuild initramfs images for remaining kernels
+      ansible.builtin.command:
+        cmd: mkinitcpio -P
+      changed_when: true
+
+    - name: Regenerate Limine entries
+      ansible.builtin.command:
+        cmd: limine-entry-tool
+      changed_when: true
+
+    - name: Disable remember_last_entry in /boot/limine.conf
+      ansible.builtin.replace:
+        path: /boot/limine.conf
+        regexp: '^\s*remember_last_entry\s*:\s*.*$'
+        replace: 'remember_last_entry: no'
+
+    - name: Set default_entry to 2 (LTS kernel now occupying sub-entry 1)
+      ansible.builtin.replace:
+        path: /boot/limine.conf
+        regexp: '^\s*default_entry\s*:\s*.*$'
+        replace: 'default_entry: 2'
+
+    # -------------------------------------------------------------------------
+    # 4. Reboot & LTS Verification
+    # -------------------------------------------------------------------------
+    - name: Reboot system to fall back to CachyOS LTS kernel
+      ansible.builtin.reboot:
+        msg: "Rebooting to restore linux-cachyos-lts kernel"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 2
+        post_reboot_delay: 5
+        test_command: uptime
+
+    - name: Get running kernel version
+      ansible.builtin.command:
+        cmd: uname -r
+      register: active_kernel
+      changed_when: false
+
+    - name: Verify running kernel is LTS
+      ansible.builtin.assert:
+        that:
+          - "'lts' in active_kernel.stdout"
+        fail_msg: "Failed to revert to LTS kernel. Active kernel: {{ active_kernel.stdout }}"
+        success_msg: "Successfully reverted to CachyOS LTS kernel: {{ active_kernel.stdout }}"

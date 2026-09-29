@@ -22,6 +22,9 @@ all:
             - kruse
             - giesen
           msfs_cache_path: "/opt/fs2024/msfs_rolling_cache"
+          ollama_data_path: "/opt/data/ollama"
+          ollama_ip_address: 192.168.105.101
+          ollama_port: 11434  # Optional: defaults to 11434 in playbooks if omitted
           additional_drives:
             - device: "/dev/nvme1n1"
               partition: "/dev/nvme1n1p1"

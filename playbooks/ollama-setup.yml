@@ -1,0 +1,85 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install and Configure Ollama with NVIDIA Support
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Package Installation (Ollama & CUDA)
+    # -------------------------------------------------------------------------
+    - name: Install Ollama and CUDA runtime packages
+      community.general.pacman:
+        name:
+          - ollama
+          - ollama-cuda
+          - cuda
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. Firewall Configuration (UFW)
+    # -------------------------------------------------------------------------
+    - name: Ensure UFW service is enabled and started
+      ansible.builtin.systemd:
+        name: ufw
+        enabled: true
+        state: started
+
+    - name: Allow incoming traffic on Ollama port via UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ ollama_port | default(11434) | string }}"
+        proto: tcp
+        comment: 'Ollama API Service'
+
+    # -------------------------------------------------------------------------
+    # 3. Directory Provisioning
+    # -------------------------------------------------------------------------
+    - name: Create Ollama data directory on dedicated storage
+      ansible.builtin.file:
+        path: "{{ ollama_data_path }}"
+        state: directory
+        owner: ollama
+        group: ollama
+        mode: '0755'
+
+    - name: Ensure systemd override directory for Ollama exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/ollama.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # -------------------------------------------------------------------------
+    # 4. Service Override via Template
+    # -------------------------------------------------------------------------
+    - name: Deploy systemd service drop-in configuration using template
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/ollama-service.conf.j2"
+        dest: /etc/systemd/system/ollama.service.d/override.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - Reload systemd daemon
+        - Restart Ollama service
+
+    # -------------------------------------------------------------------------
+    # 5. Service Activation
+    # -------------------------------------------------------------------------
+    - name: Ensure Ollama service is enabled and started
+      ansible.builtin.systemd:
+        name: ollama.service
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart Ollama service
+      ansible.builtin.systemd:
+        name: ollama.service
+        state: restarted

@@ -1,0 +1,51 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Docker Service & Purge Data
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. User Access Revocation
+    # -------------------------------------------------------------------------
+    - name: Remove gaming_box users from the docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        state: present
+        remove_default_group: false
+      loop: "{{ steam_users }}"
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 2. Service Termination
+    # -------------------------------------------------------------------------
+    - name: Stop and disable Docker service
+      ansible.builtin.systemd:
+        name: docker.service
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. Configuration & Storage Removal
+    # -------------------------------------------------------------------------
+    - name: Remove Docker configuration directory
+      ansible.builtin.file:
+        path: /etc/docker
+        state: absent
+
+    - name: Purge Docker data directory and containers/images
+      ansible.builtin.file:
+        path: /opt/data/docker
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # 4. Package Purge
+    # -------------------------------------------------------------------------
+    - name: Remove Docker packages
+      community.general.pacman:
+        name:
+          - docker
+          - docker-compose
+        state: absent

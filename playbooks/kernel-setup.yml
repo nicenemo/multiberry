@@ -1,0 +1,123 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install Latest Optimized CachyOS Kernel
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Refresh & Install Optimized Kernel
+    # -------------------------------------------------------------------------
+    - name: Refresh pacman sync databases
+      ansible.builtin.command:
+        cmd: pacman -Sy
+      changed_when: true
+
+    - name: Install main optimized CachyOS kernel and headers alongside LTS
+      community.general.pacman:
+        name:
+          - linux-cachyos
+          - linux-cachyos-headers
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. Kernel Command Line (Limine) Optimizations
+    # -------------------------------------------------------------------------
+    - name: Ensure /etc/kernel/cmdline exists
+      ansible.builtin.file:
+        path: /etc/kernel/cmdline
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Apply high-performance kernel parameters
+      ansible.builtin.lineinfile:
+        path: /etc/kernel/cmdline
+        backrefs: true
+        regexp: '^(.*)$'
+        line: '\1 mitigations=off pci=rebar split_lock_detect=off processor.max_cstate=1'
+
+    # -------------------------------------------------------------------------
+    # 3. Generic DKMS Module Rebuild & Initramfs
+    # -------------------------------------------------------------------------
+    - name: Find target module directory for linux-cachyos
+      ansible.builtin.find:
+        paths: /usr/lib/modules
+        file_type: directory
+        patterns: "*cachyos*"
+        excludes: "*lts*"
+      register: kernel_module_dirs
+
+    - name: Extract target kernel release string
+      ansible.builtin.set_fact:
+        target_kernel_release: "{{ kernel_module_dirs.files | map(attribute='path') | map('basename') | first }}"
+      when: kernel_module_dirs.files | length > 0
+
+    - name: Rebuild configured DKMS modules for new kernel
+      ansible.builtin.command:
+        cmd: "dkms autoinstall -k {{ target_kernel_release }}"
+      register: dkms_result
+      changed_when: dkms_result.rc == 0
+      when: target_kernel_release is defined
+
+    - name: Rebuild initramfs images for all installed kernels
+      ansible.builtin.command:
+        cmd: mkinitcpio -P
+      changed_when: true
+
+    # -------------------------------------------------------------------------
+    # 4. Limine Configuration Update
+    # -------------------------------------------------------------------------
+    - name: Ensure BOOT_ORDER prioritizes main CachyOS kernel in /etc/default/limine
+      ansible.builtin.lineinfile:
+        path: /etc/default/limine
+        regexp: '^BOOT_ORDER=.*'
+        line: 'BOOT_ORDER="*cachyos, *, *lts, *fallback, Snapshots"'
+        create: true
+        mode: '0644'
+
+    - name: Regenerate Limine entries
+      ansible.builtin.command:
+        cmd: limine-entry-tool
+      changed_when: true
+
+    - name: Disable remember_last_entry in /boot/limine.conf
+      ansible.builtin.replace:
+        path: /boot/limine.conf
+        regexp: '^\s*remember_last_entry\s*:\s*.*$'
+        replace: 'remember_last_entry: no'
+
+    - name: Set default_entry to 2 (first kernel inside CachyOS group)
+      ansible.builtin.replace:
+        path: /boot/limine.conf
+        regexp: '^\s*default_entry\s*:\s*.*$'
+        replace: 'default_entry: 2'
+
+    # -------------------------------------------------------------------------
+    # 5. Reboot & Kernel Verification
+    # -------------------------------------------------------------------------
+    - name: Reboot system into new optimized kernel
+      ansible.builtin.reboot:
+        msg: "Rebooting to boot into linux-cachyos kernel"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 2
+        post_reboot_delay: 5
+        test_command: uptime
+
+    - name: Get running kernel version
+      ansible.builtin.command:
+        cmd: uname -r
+      register: active_kernel
+      changed_when: false
+
+    - name: Verify running kernel is linux-cachyos
+      ansible.builtin.assert:
+        that:
+          - "'lts' not in active_kernel.stdout"
+          - "'cachyos' in active_kernel.stdout"
+        fail_msg: "Failed to boot into optimized kernel. Active kernel: {{ active_kernel.stdout }}"
+        success_msg: "Successfully booted into optimized kernel: {{ active_kernel.stdout }}"

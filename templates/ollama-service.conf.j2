@@ -1,0 +1,3 @@
+[Service]
+Environment="OLLAMA_MODELS={{ ollama_data_path }}"
+Environment="OLLAMA_HOST={{ ollama_ip_address }}:{{ ollama_port | default(11434) }}"

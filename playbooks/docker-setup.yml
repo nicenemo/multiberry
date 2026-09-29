@@ -1,0 +1,77 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install and Configure Docker on Isolated Storage
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Package Installation
+    # -------------------------------------------------------------------------
+    - name: Install Docker and Docker Compose
+      community.general.pacman:
+        name:
+          - docker
+          - docker-compose
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. Directory Provisioning
+    # -------------------------------------------------------------------------
+    - name: Ensure dedicated Docker data directory exists
+      ansible.builtin.file:
+        path: /opt/data/docker
+        state: directory
+        owner: root
+        group: root
+        mode: '0710'
+
+    - name: Ensure Docker configuration directory exists
+      ansible.builtin.file:
+        path: /etc/docker
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # -------------------------------------------------------------------------
+    # 3. Daemon Configuration (Data Location & Security)
+    # -------------------------------------------------------------------------
+    - name: Configure Docker daemon data-root
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "data-root": "/opt/data/docker",
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            }
+          }
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Docker service
+
+    # -------------------------------------------------------------------------
+    # 4. Service Activation & User Delegation
+    # -------------------------------------------------------------------------
+    - name: Ensure Docker service is enabled and started
+      ansible.builtin.systemd:
+        name: docker.service
+        enabled: true
+        state: started
+
+    - name: Add gaming_box users to the docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ steam_users }}"
+
+  handlers:
+    - name: Restart Docker service
+      ansible.builtin.systemd:
+        name: docker.service
+        state: restarted

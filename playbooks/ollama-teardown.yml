@@ -1,0 +1,54 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Ollama Service, Firewall Rule & Purge Data
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Firewall Rule Removal
+    # -------------------------------------------------------------------------
+    - name: Remove UFW firewall rule for Ollama port
+      community.general.ufw:
+        rule: allow
+        port: "{{ ollama_port | default(11434) | string }}"
+        proto: tcp
+        delete: true
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 2. Service Termination
+    # -------------------------------------------------------------------------
+    - name: Stop and disable Ollama service
+      ansible.builtin.systemd:
+        name: ollama.service
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. Configuration & Data Removal
+    # -------------------------------------------------------------------------
+    - name: Remove systemd override directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/ollama.service.d
+        state: absent
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Remove Ollama data directory and contents
+      ansible.builtin.file:
+        path: "{{ ollama_data_path }}"
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # 4. Package Purge
+    # -------------------------------------------------------------------------
+    - name: Remove Ollama packages
+      community.general.pacman:
+        name:
+          - ollama
+          - ollama-cuda
+        state: absent

@@ -1,0 +1,53 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Revert Base System Configuration and Mounts
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Unmount Storage Drives & Cleanup Mount Points
+    # -------------------------------------------------------------------------
+    - name: Unmount storage drives and remove /etc/fstab entries
+      ansible.posix.mount:
+        path: "{{ item.mount_path }}"
+        state: absent
+      loop: "{{ additional_drives | default([]) | reverse | list }}"
+
+    - name: Remove mount directories
+      ansible.builtin.file:
+        path: "{{ item.mount_path }}"
+        state: absent
+      loop: "{{ additional_drives | default([]) | reverse | list }}"
+
+    # -------------------------------------------------------------------------
+    # 2. Editor Profile Cleanup
+    # -------------------------------------------------------------------------
+    - name: Remove editor profile file
+      ansible.builtin.file:
+        path: /etc/profile.d/editor.sh
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # 3. Base Packages Teardown
+    # -------------------------------------------------------------------------
+    - name: Filter base package removal list (excluding networkmanager)
+      ansible.builtin.set_fact:
+        target_base_packages: "{{ (common_packages | default([])) | reject('equalto', 'networkmanager') | list }}"
+
+    - name: Query installed base packages
+      ansible.builtin.command:
+        cmd: "pacman -Qq {{ target_base_packages | join(' ') }}"
+      register: installed_base_check
+      changed_when: false
+      failed_when: false
+      when: target_base_packages | length > 0
+
+    - name: Remove base packages via cascade removal
+      ansible.builtin.command:
+        cmd: "pacman -Rcn --noconfirm {{ installed_base_check.stdout_lines | join(' ') }}"
+      register: pacman_remove_base
+      changed_when: "'removing' in pacman_remove_base.stdout"
+      when:
+        - installed_base_check.stdout_lines is defined
+        - installed_base_check.stdout_lines | length > 0

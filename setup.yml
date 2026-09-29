@@ -7,6 +7,9 @@
 - name: Import Base Setup
   ansible.builtin.import_playbook: playbooks/base-setup.yml
 
+- name: Import Kernel Setup
+  ansible.builtin.import_playbook: playbooks/kernel-setup.yml
+
 - name: Import NVIDIA GTX 1080 Setup
   ansible.builtin.import_playbook: playbooks/nvidia1080-setup.yml
 
@@ -15,3 +18,9 @@
 
 - name: Import wlsunset Setup
   ansible.builtin.import_playbook: playbooks/wlsunset-setup.yml
+
+- name: Import Docker Setup
+  ansible.builtin.import_playbook: playbooks/docker-setup.yml
+
+- name: Import Ollama Setup
+  ansible.builtin.import_playbook: playbooks/ollama-setup.yml
