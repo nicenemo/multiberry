@@ -1,0 +1,33 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Ollama Models
+  hosts: gaming_box
+  become: false
+
+  vars:
+    ollama_api_endpoint: "http://{{ ollama_ip_address | default('127.0.0.1') }}:{{ ollama_port | default(11434) }}"
+
+  tasks:
+    - name: Check if scraped models var file exists
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../vars/ollama_models.yml"
+      delegate_to: localhost
+      register: ollama_vars_file
+
+    - name: Load scraped models variable file if present
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../vars/ollama_models.yml"
+      when: ollama_vars_file.stat.exists
+
+    - name: Remove models defined in pull list
+      ansible.builtin.command:
+        cmd: "ollama rm {{ item }}"
+      environment:
+        OLLAMA_HOST: "{{ ollama_api_endpoint }}"
+      loop: "{{ ollama_models_to_pull | default([]) }}"
+      when:
+        - ollama_vars_file.stat.exists
+        - ollama_models_to_pull is defined
+        - (ollama_models_to_pull | length) > 0
+      failed_when: false
+      changed_when: true

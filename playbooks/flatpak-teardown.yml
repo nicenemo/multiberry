@@ -1,0 +1,44 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Flatpak Stack
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Remote Removal (Idempotent via state: absent)
+    # -------------------------------------------------------------------------
+    - name: Ensure Flathub repository is removed
+      community.general.flatpak_remote:
+        name: flathub
+        state: absent
+        method: system
+      failed_when: false # Prevents failure if flatpak binary is already removed
+
+    # -------------------------------------------------------------------------
+    # 2. Package Uninstallation (Idempotent Pacman Query & Removal)
+    # -------------------------------------------------------------------------
+    - name: Check if flatpak package is installed
+      ansible.builtin.command:
+        cmd: pacman -Qq flatpak
+      register: flatpak_check
+      changed_when: false
+      failed_when: false
+
+    - name: Remove flatpak package via pacman
+      ansible.builtin.command:
+        cmd: pacman -Rcn --noconfirm flatpak
+      register: pacman_remove_flatpak
+      changed_when: "'removing' in pacman_remove_flatpak.stdout"
+      when: flatpak_check.rc == 0
+
+    # -------------------------------------------------------------------------
+    # 3. System Configuration Cleanup
+    # -------------------------------------------------------------------------
+    - name: Ensure Flatpak system state directories are purged
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/flatpak
+        - /etc/flatpak

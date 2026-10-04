@@ -1,0 +1,64 @@
+# Dynamically generated via Ansible template from https://ollama.com/library
+# Max Parameter Size Limit: {{ filter_max_size_b }}B
+# Excluded Age Unit Match: {{ filter_max_age_unit }}
+---
+{%- set ns = namespace(models=[], seen_slugs=[]) -%}
+{%- for block in html_content.split('href="/library/')[1:] -%}
+  {%- set slug = block.split('"')[0] | trim -%}
+  {%- if slug not in ns.seen_slugs and '/' not in slug and slug != '' -%}
+    {%- set ns.seen_slugs = ns.seen_slugs + [slug] -%}
+    
+    {# Extract age string #}
+    {%- set age_matches = block | regex_findall('\\d+\\s+(?:second|minute|hour|day|week|month|year)s?\\s+ago') -%}
+    {%- set updated_str = (age_matches[0] if age_matches | length > 0 else 'unknown') | lower -%}
+    
+    {# Extract description #}
+    {%- set desc_matches = block | regex_findall('<p[^>]*>([^<]+)</p>') -%}
+    {%- set desc = (desc_matches[0] if desc_matches | length > 0 else '') | trim -%}
+    
+    {# Extract parameter sizes exclusively from span elements/badges #}
+    {%- set size_spans = block | regex_findall('x-test-size[^>]*>([^<]+)</span>') -%}
+    {%- set raw_sizes = size_spans if size_spans | length > 0 else block | regex_findall('<span[^>]*>([0-9]+(?:\\.[0-9]+)?[bB])</span>') -%}
+    
+    {# Filter by age: skips filter if filter_max_age_unit is 'none', empty, or not matched #}
+    {%- if filter_max_age_unit in ['none', '', 'never'] or filter_max_age_unit not in updated_str -%}
+      {%- set size_ns = namespace(valid=[]) -%}
+      {%- for s in raw_sizes -%}
+        {%- set clean_s = s | lower | trim -%}
+        {%- set num = clean_s | replace('b', '') | float -%}
+        {%- if num <= (filter_max_size_b | float) and clean_s not in size_ns.valid -%}
+          {%- set size_ns.valid = size_ns.valid + [clean_s] -%}
+        {%- endif -%}
+      {%- endfor -%}
+      
+      {%- if size_ns.valid | length > 0 -%}
+        {%- set selected_tag = slug ~ ':' ~ size_ns.valid[-1] -%}
+        {%- set ns.models = ns.models + [{
+          'name': slug,
+          'tag': selected_tag,
+          'updated': updated_str,
+          'sizes': size_ns.valid,
+          'description': desc,
+          'web_url': 'https://ollama.com/library/' ~ slug
+        }] -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endfor %}
+
+ollama_models_catalog:
+{% for model in ns.models %}
+  - name: "{{ model.name }}"
+    tag: "{{ model.tag }}"
+    updated: "{{ model.updated }}"
+    sizes_under_limit: {{ model.sizes | to_json }}
+    description: |
+      {{ model.description | indent(6) }}
+    web_url: "{{ model.web_url }}"
+{% endfor %}
+
+ollama_models_to_pull: []
+# To enable pulling models, remove '[]' from 'ollama_models_to_pull:' above and uncomment any items below:
+{% for model in ns.models %}
+#  - "{{ model.tag }}"
+{% endfor %}

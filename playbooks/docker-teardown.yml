@@ -6,9 +6,41 @@
 
   tasks:
     # -------------------------------------------------------------------------
-    # 1. User Access Revocation
+    # 1. Service Termination
     # -------------------------------------------------------------------------
-    - name: Remove gaming_box users from the docker group
+    - name: Stop and disable Docker service and socket
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      loop:
+        - docker.service
+        - docker.socket
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 2. Package Purge & Systemd Cleanup
+    # -------------------------------------------------------------------------
+    - name: Remove Docker packages
+      community.general.pacman:
+        name:
+          - docker
+          - docker-compose
+        state: absent
+
+    - name: Reload systemd daemon to unregister removed units
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Clear lingering failed states from systemd memory
+      ansible.builtin.command: systemctl reset-failed
+      changed_when: false
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. User Access Revocation
+    # -------------------------------------------------------------------------
+    - name: Remove gaming_box users from docker group
       ansible.builtin.user:
         name: "{{ item }}"
         groups: docker
@@ -18,34 +50,19 @@
       failed_when: false
 
     # -------------------------------------------------------------------------
-    # 2. Service Termination
-    # -------------------------------------------------------------------------
-    - name: Stop and disable Docker service
-      ansible.builtin.systemd:
-        name: docker.service
-        enabled: false
-        state: stopped
-      failed_when: false
-
-    # -------------------------------------------------------------------------
-    # 3. Configuration & Storage Removal
+    # 4. Configuration & Storage Removal
     # -------------------------------------------------------------------------
     - name: Remove Docker configuration directory
       ansible.builtin.file:
         path: /etc/docker
         state: absent
 
+    - name: Purge Docker compose directory
+      ansible.builtin.file:
+        path: /opt/data/compose
+        state: absent
+
     - name: Purge Docker data directory and containers/images
       ansible.builtin.file:
         path: /opt/data/docker
-        state: absent
-
-    # -------------------------------------------------------------------------
-    # 4. Package Purge
-    # -------------------------------------------------------------------------
-    - name: Remove Docker packages
-      community.general.pacman:
-        name:
-          - docker
-          - docker-compose
         state: absent

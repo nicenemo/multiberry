@@ -1,0 +1,94 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Build Custom Firestorm Package for Agni
+  hosts: gaming_box
+  become: true
+  gather_facts: true
+
+  vars:
+    # Bepaal het top-level project root pad dynamisch
+    project_root: "{{ playbook_dir if not playbook_dir.endswith('playbooks') else playbook_dir ~ '/..' }}"
+    
+    build_user: "pkgbuilder"
+    build_dir: "/var/tmp/firestorm-package-build"
+    pkg_output_dir: "/var/cache/custom-packages"
+    local_log_path: "./firestorm-build-failure.log"
+
+    # Firestorm specifieke variabelen voor Jinja2 templates
+    firestorm_version: "7.1.11"
+    firestorm_branch: "master"           # 'master' voor release of geef een specifieke beta branch op
+    firestorm_channel: "Firestorm-Release" # Forceert de goedgekeurde Agni Grid Channel ID
+    
+    # Installatie- en desktop-paden
+    firestorm_install_dir: "/opt/firestorm-custom"
+    firestorm_desktop_name: "Firestorm Viewer (Agni Custom)"
+    firestorm_icon_name: "firestorm_icon.png"
+
+  tasks:
+    - name: Ensure workspace directory is clean from previous builds
+      ansible.builtin.file:
+        path: "{{ build_dir }}"
+        state: absent
+
+    - name: Ensure workspace and cache directories exist for build user
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ build_user }}"
+        group: "{{ build_user }}"
+        mode: '0755'
+      loop:
+        - "{{ build_dir }}"
+        - "{{ pkg_output_dir }}"
+
+    - name: Render dynamic desktop entry from Jinja2 template
+      ansible.builtin.template:
+        src: "{{ project_root }}/templates/firestorm.desktop.j2"
+        dest: "{{ build_dir }}/firestorm.desktop"
+        owner: "{{ build_user }}"
+        group: "{{ build_user }}"
+        mode: '0644'
+
+    - name: Render custom dynamic PKGBUILD from Jinja2 template
+      ansible.builtin.template:
+        src: "{{ project_root }}/templates/firestorm-PKGBUILD.j2"
+        dest: "{{ build_dir }}/PKGBUILD"
+        owner: "{{ build_user }}"
+        group: "{{ build_user }}"
+        mode: '0644'
+
+    - name: Build Firestorm package using makepkg
+      ansible.builtin.command:
+        cmd: makepkg -Ac -d --noconfirm
+        chdir: "{{ build_dir }}"
+      become_user: "{{ build_user }}"
+      environment:
+        GIT_TERMINAL_PROMPT: "0"
+        GIT_ASKPASS: "/bin/echo"
+      register: makepkg_result
+      ignore_errors: true
+
+    - name: Save build failure log locally on control node if makepkg failed
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        content: |
+          === STDOUT ===
+          {{ makepkg_result.stdout | default('N/A') }}
+
+          === STDERR ===
+          {{ makepkg_result.stderr | default('N/A') }}
+        dest: "{{ local_log_path }}"
+        mode: '0644'
+      when: makepkg_result.failed
+
+    - name: Fail playbook if makepkg execution failed
+      ansible.builtin.fail:
+        msg: "Makepkg failed! Check the full output in the file: {{ local_log_path }}"
+      when: makepkg_result.failed
+
+    - name: Move generated package to custom package cache
+      ansible.builtin.shell: |
+        mv {{ build_dir }}/*.pkg.tar.zst {{ pkg_output_dir }}/
+      args:
+        removes: "{{ build_dir }}/*.pkg.tar.zst"

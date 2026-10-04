@@ -15,6 +15,10 @@
           - docker-compose
         state: present
 
+    - name: Reload systemd daemon to discover new unit files
+      ansible.builtin.systemd:
+        daemon_reload: true
+
     # -------------------------------------------------------------------------
     # 2. Directory Provisioning
     # -------------------------------------------------------------------------
@@ -24,7 +28,15 @@
         state: directory
         owner: root
         group: root
-        mode: '0710'
+        mode: '0711'
+
+    - name: Ensure Docker compose directory exists for stacks
+      ansible.builtin.file:
+        path: /opt/data/compose
+        state: directory
+        owner: root
+        group: docker
+        mode: '0775'
 
     - name: Ensure Docker configuration directory exists
       ansible.builtin.file:
@@ -57,11 +69,19 @@
     # -------------------------------------------------------------------------
     # 4. Service Activation & User Delegation
     # -------------------------------------------------------------------------
-    - name: Ensure Docker service is enabled and started
+    - name: Reset systemd failed state for Docker units
+      ansible.builtin.command: systemctl reset-failed docker.service docker.socket
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure Docker socket and service are enabled and started
       ansible.builtin.systemd:
-        name: docker.service
+        name: "{{ item }}"
         enabled: true
         state: started
+      loop:
+        - docker.socket
+        - docker.service
 
     - name: Add gaming_box users to the docker group
       ansible.builtin.user:

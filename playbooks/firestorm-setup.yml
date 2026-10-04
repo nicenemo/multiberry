@@ -1,0 +1,72 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install and Configure Firestorm Viewer via Flatpak
+  hosts: gaming_box
+  become: true
+
+  vars:
+    target_users: "{{ firestorm_users }}"
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Ensure Ansible Remote Tmp Directories Exist (Fixes become_user Warning)
+    # -------------------------------------------------------------------------
+    - name: Ensure Ansible remote tmp directory exists for all target users
+      ansible.builtin.file:
+        path: "/home/{{ item.name | default(item) }}/.ansible/tmp"
+        state: directory
+        owner: "{{ item.name | default(item) }}"
+        group: "{{ item.group | default(item) }}"
+        mode: '0700'
+      loop: "{{ target_users }}"
+
+    # -------------------------------------------------------------------------
+    # 2. Application Installation
+    # -------------------------------------------------------------------------
+    - name: Install Firestorm Viewer from Flathub
+      community.general.flatpak:
+        name: org.firestormviewer.FirestormViewer
+        state: present
+        method: system
+
+    # -------------------------------------------------------------------------
+    # 3. User Home Directory Provisioning
+    # -------------------------------------------------------------------------
+    - name: Ensure Firestorm profile and Flatpak sandbox directories exist with correct permissions
+      ansible.builtin.file:
+        path: "/home/{{ item[0].name | default(item[0]) }}/{{ item[1] }}"
+        state: directory
+        owner: "{{ item[0].name | default(item[0]) }}"
+        group: "{{ item[0].group | default(item[0]) }}"
+        mode: '0755'
+      loop: "{{ target_users | product([
+        '.firestorm_viewer',
+        '.config/Firestorm',
+        '.var/app/org.firestormviewer.FirestormViewer'
+      ]) | list }}"
+
+    # -------------------------------------------------------------------------
+    # 4. CLI Shortcut Creation
+    # -------------------------------------------------------------------------
+    - name: Create global symlink for 'firestorm' CLI command
+      ansible.builtin.file:
+        src: /var/lib/flatpak/exports/bin/org.firestormviewer.FirestormViewer
+        dest: /usr/local/bin/firestorm
+        state: link
+
+    # -------------------------------------------------------------------------
+    # 5. Refresh Desktop & Launcher Databases
+    # -------------------------------------------------------------------------
+    - name: Update system desktop database for menu integration
+      ansible.builtin.command:
+        cmd: update-desktop-database /var/lib/flatpak/exports/share/applications
+      changed_when: false
+      failed_when: false
+
+    - name: Refresh KDE launcher cache for active user sessions
+      ansible.builtin.command:
+        cmd: kbuildsycoca6 --noincremental
+      become_user: "{{ item.name | default(item) }}"
+      loop: "{{ target_users }}"
+      changed_when: false
+      failed_when: false

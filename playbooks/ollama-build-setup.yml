@@ -1,0 +1,92 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Build Custom Ollama Package
+  hosts: gaming_box
+  become: true
+  gather_facts: true
+
+  vars:
+    # Bepaal het top-level project root pad dynamisch
+    project_root: "{{ playbook_dir if not playbook_dir.endswith('playbooks') else playbook_dir ~ '/..' }}"
+    
+    build_user: "pkgbuilder"
+    build_dir: "/var/tmp/ollama-package-build"
+    pkg_output_dir: "/var/cache/custom-packages"
+    local_log_path: "./ollama-build-failure.log"
+
+    # Backend instellingen (overrijdbaar per host)
+    ollama_enable_cuda: true
+    ollama_enable_rocm: false
+    ollama_enable_vulkan: true
+
+    # CUDA architecture:
+    # GTX 1080 (Pascal) = "61"
+    # Nieuwere NVIDIA kaarten (bijv. RTX 30xx/40xx) = "86;89;90"
+    cuda_architectures: "61"
+
+  tasks:
+    - name: Ensure workspace directory is clean from previous builds
+      ansible.builtin.file:
+        path: "{{ build_dir }}"
+        state: absent
+
+    - name: Ensure workspace directory exists for build user
+      ansible.builtin.file:
+        path: "{{ build_dir }}"
+        state: directory
+        owner: "{{ build_user }}"
+        group: "{{ build_user }}"
+        mode: '0755'
+
+    - name: Clone official Arch/CachyOS PKGBUILD repository for extra assets
+      ansible.builtin.git:
+        repo: 'https://gitlab.archlinux.org/archlinux/packaging/packages/ollama.git'
+        dest: "{{ build_dir }}"
+        depth: 1
+        force: true
+      become_user: "{{ build_user }}"
+
+    - name: Render custom dynamic PKGBUILD from Jinja2 template
+      ansible.builtin.template:
+        src: "{{ project_root }}/templates/ollama-PKGBUILD.j2"
+        dest: "{{ build_dir }}/PKGBUILD"
+        owner: "{{ build_user }}"
+        group: "{{ build_user }}"
+        mode: '0644'
+
+    - name: Build Ollama package using makepkg
+      ansible.builtin.command:
+        cmd: makepkg -Ac -d --noconfirm
+        chdir: "{{ build_dir }}"
+      become_user: "{{ build_user }}"
+      environment:
+        PATH: "/opt/cuda/bin:{{ ansible_facts['env']['PATH'] }}"
+        NVARCH: "61-pascal"
+        OLLAMA_CUDA_ARCHITECTURES: "{{ cuda_architectures }}"
+      register: makepkg_result
+      ignore_errors: true
+
+    - name: Save build failure log locally on control node if makepkg failed
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        content: |
+          === STDOUT ===
+          {{ makepkg_result.stdout | default('N/A') }}
+
+          === STDERR ===
+          {{ makepkg_result.stderr | default('N/A') }}
+        dest: "{{ local_log_path }}"
+        mode: '0644'
+      when: makepkg_result.failed
+
+    - name: Fail playbook if makepkg execution failed
+      ansible.builtin.fail:
+        msg: "Makepkg failed! Check the full output in the file: {{ local_log_path }}"
+      when: makepkg_result.failed
+
+    - name: Move generated package to custom package cache
+      ansible.builtin.shell: |
+        mv {{ build_dir }}/*.pkg.tar.zst {{ pkg_output_dir }}/
+      args:
+        removes: "{{ build_dir }}/*.pkg.tar.zst"

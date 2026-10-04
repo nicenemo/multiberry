@@ -1,0 +1,40 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown OpenClaw Stack & Purge Data
+  hosts: gaming_box
+  become: true
+
+  vars:
+    openclaw_port: 8080
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Container Termination
+    # -------------------------------------------------------------------------
+    - name: Stop and remove OpenClaw Docker Compose stack
+      community.docker.docker_compose_v2:
+        project_src: /opt/data/compose/openclaw
+        state: absent
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 2. Firewall Rule Cleanup
+    # -------------------------------------------------------------------------
+    - name: Remove UFW firewall rule for OpenClaw
+      community.general.ufw:
+        rule: allow
+        port: "{{ openclaw_port | string }}"
+        proto: tcp
+        delete: true
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. Storage Cleanup
+    # -------------------------------------------------------------------------
+    - name: Purge OpenClaw compose and workspace directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/data/compose/openclaw
+        - /opt/data/openclaw-data

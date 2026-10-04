@@ -1,0 +1,132 @@
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Maintainer: Sven-Hendrik Haase <svenstaro@archlinux.org>
+
+pkgbase=ollama
+pkgname=(ollama{% if ollama_enable_cuda %} ollama-cuda{% endif %}{% if ollama_enable_rocm %} ollama-rocm{% endif %}{% if ollama_enable_vulkan %} ollama-vulkan{% endif %} ollama-docs)
+pkgver=0.34.4
+pkgrel=1
+pkgdesc='Create, run and share large language models (LLMs)'
+arch=(x86_64)
+url='https://github.com/ollama/ollama'
+license=(MIT)
+options=('!lto')
+depends=(libgcc libstdc++ glibc)
+makedepends=(cmake
+             git
+             go
+{% if ollama_enable_rocm %}
+             rocm-toolchain
+             hipblas
+{% endif %}
+{% if ollama_enable_cuda %}
+             cuda
+{% endif %}
+             clblast
+             spirv-headers
+             vulkan-headers
+             vulkan-icd-loader
+             shaderc)
+source=(git+https://github.com/ollama/ollama#tag=v$pkgver
+        ollama-ld.conf
+        ollama.service
+        sysusers.conf
+        tmpfiles.conf)
+b2sums=('SKIP'
+        'SKIP'
+        'SKIP'
+        'SKIP'
+        'SKIP')
+
+build() {
+{% if not ollama_enable_rocm %}
+  export OLLAMA_SKIP_ROCM="1"
+{% endif %}
+  export CGO_CPPFLAGS="${CPPFLAGS}"
+  export CGO_CFLAGS="${CFLAGS}"
+  export CGO_CXXFLAGS="${CXXFLAGS}"
+  export CGO_LDFLAGS="${LDFLAGS}"
+  export GOPATH="${srcdir}"
+  export GOFLAGS="-buildmode=pie -mod=readonly -modcacherw '-ldflags=-linkmode=external -compressdwarf=false -X=github.com/ollama/ollama/version.Version=$pkgver -X=github.com/ollama/ollama/server.mode=release'"
+
+  cd ollama
+
+  sed -i 's/PRE_INCLUDE_REGEXES.*/PRE_INCLUDE_REGEXES = ""/' CMakeLists.txt
+
+  local cmake_options=(
+    -B build
+    -W no-dev
+    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D OLLAMA_LLAMA_BACKENDS="{% if ollama_enable_cuda %}cuda_v13;{% endif %}{% if ollama_enable_rocm %}rocm_v7_2;{% endif %}{% if ollama_enable_vulkan %}vulkan{% endif %}"
+{% if ollama_enable_cuda %}
+    -D CMAKE_CUDA_ARCHITECTURES="{{ cuda_architectures }}"
+{% endif %}
+  )
+
+  cmake "${cmake_options[@]}"
+  cmake --build build
+  go build .
+
+  DESTDIR=staging-install cmake --install build
+}
+
+check() {
+  ollama/ollama --version > /dev/null
+  cd ollama
+  go test .
+}
+
+package_ollama() {
+  cp -r ollama/staging-install/* "$pkgdir"
+  rm -rf "$pkgdir/usr/lib/ollama/rocm"* 2>/dev/null || true
+  rm -rf "$pkgdir/usr/lib/ollama/cuda"* 2>/dev/null || true
+  rm -rf "$pkgdir/usr/lib/ollama/vulkan"* 2>/dev/null || true
+
+  install -Dm755 $pkgname/ollama "$pkgdir/usr/bin/ollama"
+  install -dm755 "$pkgdir/var/lib/ollama"
+  install -Dm644 ollama.service "$pkgdir/usr/lib/systemd/system/ollama.service"
+  install -Dm644 sysusers.conf "$pkgdir/usr/lib/sysusers.d/ollama.conf"
+  install -Dm644 tmpfiles.conf "$pkgdir/usr/lib/tmpfiles.d/ollama.conf"
+  install -Dm644 ollama/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  ln -s /var/lib/ollama "$pkgdir/usr/share/ollama"
+}
+
+{% if ollama_enable_rocm %}
+package_ollama-rocm() {
+  pkgdesc='Create, run and share large language models (LLMs) with ROCm'
+  depends+=(ollama hipblas)
+
+  mkdir -p "$pkgdir/usr/lib/ollama"
+  cp -r ollama/staging-install/usr/lib/ollama/rocm* "$pkgdir/usr/lib/ollama"
+}
+{% endif %}
+
+{% if ollama_enable_cuda %}
+package_ollama-cuda() {
+  pkgdesc='Create, run and share large language models (LLMs) with CUDA'
+  depends+=(ollama cuda)
+
+  mkdir -p "$pkgdir/usr/lib/ollama"
+  cp -r ollama/staging-install/usr/lib/ollama/cuda* "$pkgdir/usr/lib/ollama"
+}
+{% endif %}
+
+{% if ollama_enable_vulkan %}
+package_ollama-vulkan() {
+  pkgdesc='Create, run and share large language models (LLMs) with Vulkan'
+  depends+=(ollama vulkan-icd-loader)
+
+  mkdir -p "$pkgdir/usr/lib/ollama"
+  cp -r ollama/staging-install/usr/lib/ollama/vulkan* "$pkgdir/usr/lib/ollama"
+}
+{% endif %}
+
+package_ollama-docs() {
+  pkgdesc='Documentation for Ollama'
+  depends=()
+
+  install -d "$pkgdir/usr/share/doc"
+  cp -r ollama/docs "$pkgdir/usr/share/doc/ollama"
+  install -Dm644 ollama/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

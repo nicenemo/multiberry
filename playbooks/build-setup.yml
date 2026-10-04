@@ -1,0 +1,49 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Setup Generic Package Build Environment
+  hosts: gaming_box
+  become: true
+
+  vars:
+    build_user: "pkgbuilder"
+    pkg_output_dir: "/var/cache/custom-packages"
+
+  tasks:
+    - name: Ensure custom package cache directory exists
+      ansible.builtin.file:
+        path: "{{ pkg_output_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Ensure unprivileged build user exists
+      ansible.builtin.user:
+        name: "{{ build_user }}"
+        state: present
+        create_home: true
+        shell: /bin/bash
+
+    - name: Ensure build user has NOPASSWD sudo access for pacman
+      ansible.builtin.copy:
+        content: "{{ build_user }} ALL=(ALL) NOPASSWD: /usr/bin/pacman"
+        dest: "/etc/sudoers.d/99-{{ build_user }}"
+        owner: root
+        group: root
+        mode: '0440'
+
+    - name: Install required build tools, SDK headers, and base dependencies
+      community.general.pacman:
+        name:
+          - base-devel
+          - cmake
+          - git
+          - go
+          - cuda
+          - clblast
+          - spirv-headers
+          - vulkan-headers
+          - vulkan-icd-loader
+          - shaderc
+        state: present
+        update_cache: true

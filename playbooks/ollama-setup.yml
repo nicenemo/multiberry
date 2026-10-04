@@ -1,19 +1,30 @@
 #!/usr/bin/env ansible-playbook
 ---
-- name: Install and Configure Ollama with NVIDIA Support
+- name: Install and Configure Custom Ollama Package
   hosts: gaming_box
   become: true
 
+  vars:
+    pkg_output_dir: "/var/cache/custom-packages"
+
   tasks:
     # -------------------------------------------------------------------------
-    # 1. Package Installation (Ollama & CUDA)
+    # 1. Package Installation (Custom Local Package)
     # -------------------------------------------------------------------------
-    - name: Install Ollama and CUDA runtime packages
+    - name: Find latest custom Ollama package in cache
+      ansible.builtin.find:
+        paths: "{{ pkg_output_dir }}"
+        patterns: "ollama-*.pkg.tar.zst"
+      register: custom_pkg
+
+    - name: Fail if custom package is not found
+      ansible.builtin.fail:
+        msg: "Geen op maat gemaakt ollama pakket gevonden in {{ pkg_output_dir }}. Draai eerst ollama-build.yml."
+      when: custom_pkg.files | length == 0
+
+    - name: Install custom compiled Ollama package via Pacman
       community.general.pacman:
-        name:
-          - ollama
-          - ollama-cuda
-          - cuda
+        name: "{{ (custom_pkg.files | sort(attribute='mtime') | last).path }}"
         state: present
 
     # -------------------------------------------------------------------------
@@ -52,8 +63,40 @@
         mode: '0755'
 
     # -------------------------------------------------------------------------
-    # 4. Service Override via Template
+    # 4. Environment & Service Override Configuration
     # -------------------------------------------------------------------------
+    - name: Deploy Ollama CLI environment drop-in for Systemd/PAM
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/ollama-cli.conf.j2"
+        dest: /etc/environment.d/60-ollama-cli.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy Ollama CLI environment drop-in for Bash/Zsh (profile.d)
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/ollama-env.sh.j2"
+        dest: /etc/profile.d/ollama.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Ensure Fish conf.d directory exists
+      ansible.builtin.file:
+        path: /etc/fish/conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy Ollama CLI environment drop-in for Fish shell
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/ollama-env.fish.j2"
+        dest: /etc/fish/conf.d/ollama.fish
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: Deploy systemd service drop-in configuration using template
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../templates/ollama-service.conf.j2"

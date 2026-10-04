@@ -1,0 +1,49 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Deploy Open WebUI Stack and Configure Firewall
+  hosts: gaming_box
+  become: true
+
+  vars:
+    open_webui_port: 3000
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Directory Provisioning on Dedicated SSD
+    # -------------------------------------------------------------------------
+    - name: Ensure Open WebUI compose and data directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: docker
+        mode: '0775'
+      loop:
+        - /opt/data/compose/open-webui
+        - /opt/data/open-webui-data
+
+    # -------------------------------------------------------------------------
+    # 2. Render Template & Deploy Container Stack
+    # -------------------------------------------------------------------------
+    - name: Deploy Open WebUI docker-compose file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/docker-compose-openwebui.j2"
+        dest: /opt/data/compose/open-webui/docker-compose.yml
+        owner: root
+        group: docker
+        mode: '0640'
+
+    - name: Start Open WebUI service via Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: /opt/data/compose/open-webui
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 3. Firewall Configuration (UFW)
+    # -------------------------------------------------------------------------
+    - name: Allow traffic on Open WebUI port
+      community.general.ufw:
+        rule: allow
+        port: "{{ open_webui_port | string }}"
+        proto: tcp
+        comment: "Open WebUI access"

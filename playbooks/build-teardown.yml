@@ -1,0 +1,33 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Generic Package Build Environment
+  hosts: gaming_box
+  become: true
+
+  vars:
+    build_user: "pkgbuilder"
+    pkg_output_dir: "/var/cache/custom-packages"
+
+  tasks:
+    - name: Remove unprivileged build user and home directory
+      ansible.builtin.user:
+        name: "{{ build_user }}"
+        state: absent
+        remove: true
+
+    - name: Remove custom package cache directory
+      ansible.builtin.file:
+        path: "{{ pkg_output_dir }}"
+        state: absent
+
+    # Verwijder alleen de specifieke build-tooling en SDK headers.
+    # runtime/shared afhankelijkheden (zoals cuda, git, clblast) blijven behouden.
+    - name: Remove temporary build tooling and SDK headers (optional)
+      community.general.pacman:
+        name:
+          - cmake
+          - go
+          - spirv-headers
+          - vulkan-headers
+        state: absent
+      failed_when: false

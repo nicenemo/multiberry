@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name={{ firestorm_desktop_name | default('Firestorm Viewer (Custom)') }}
+Comment=Second Life Viewer (Custom Build for Agni)
+Exec={{ firestorm_install_dir | default('/opt/firestorm') }}/firestorm-bin
+Icon={{ firestorm_install_dir | default('/opt/firestorm') }}/{{ firestorm_icon_name | default('firestorm_icon.png') }}
+Terminal=false
+Type=Application
+Categories=Game;Network;
+StartupWMClass=firestorm-bin

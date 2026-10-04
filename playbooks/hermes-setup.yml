@@ -1,0 +1,39 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Deploy Hermes Agent Stack
+  hosts: gaming_box
+  become: true
+
+  vars:
+    hermes_telegram_bot_token: ""  # Populate or override via vault/extra-vars if using Telegram
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Directory Provisioning on Dedicated SSD
+    # -------------------------------------------------------------------------
+    - name: Ensure Hermes Agent compose and memory directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: docker
+        mode: '0775'
+      loop:
+        - /opt/data/compose/hermes
+        - /opt/data/hermes-data
+
+    # -------------------------------------------------------------------------
+    # 2. Render Template & Deploy Container Stack
+    # -------------------------------------------------------------------------
+    - name: Deploy Hermes Agent docker-compose file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/docker-compose-hermes.j2"
+        dest: /opt/data/compose/hermes/docker-compose.yml
+        owner: root
+        group: docker
+        mode: '0640'
+
+    - name: Start Hermes Agent service via Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: /opt/data/compose/hermes
+        state: present

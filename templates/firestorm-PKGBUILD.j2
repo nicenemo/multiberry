@@ -1,0 +1,98 @@
+# Maintainer: Custom CachyOS Build
+pkgname=firestorm-viewer-custom
+pkgver={{ firestorm_version }}
+pkgrel=1
+pkgdesc="Firestorm Viewer for Second Life (Custom Build for Agni)"
+arch=('x86_64')
+url="https://www.firestormviewer.org"
+license=('GPL2')
+depends=(
+  'libx11'
+  'libxrender'
+  'libglu'
+  'openal'
+  'zlib'
+  'libpng'
+  'libjpeg-turbo'
+  'fontconfig'
+  'dbus-glib'
+  'pipewire-alsa'
+  'pipewire-pulse'
+  'lib32-glibc'
+)
+makedepends=(
+  'git'
+  'cmake'
+  'ninja'
+  'python'
+  'python-pip'
+)
+provides=('firestorm-viewer')
+conflicts=('firestorm-bin' 'firestorm-viewer')
+
+source=(
+  "Firestorm::git+https://github.com/FirestormViewer/phoenix-firestorm.git#branch={{ firestorm_branch }}"
+  "fs-build-variables::git+https://github.com/FirestormViewer/fs-build-variables.git"
+  "firestorm.desktop"
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+_install_dir="{{ firestorm_install_dir | default('/opt/firestorm-custom') }}"
+
+prepare() {
+  export GIT_TERMINAL_PROMPT=0
+  export GIT_ASKPASS=/bin/echo
+
+  cd "$srcdir/Firestorm"
+
+  # Virtuele Python-omgeving opzetten voor autobuild
+  python -m venv "$srcdir/venv"
+  source "$srcdir/venv/bin/activate"
+  pip install autobuild
+}
+
+build() {
+  export GIT_TERMINAL_PROMPT=0
+  export GIT_ASKPASS=/bin/echo
+
+  # Verplicht extern variabelenbestand voor Firestorm autobuild
+  export AUTOBUILD_VARIABLES_FILE="$srcdir/fs-build-variables/variables"
+
+  cd "$srcdir/Firestorm"
+  source "$srcdir/venv/bin/activate"
+
+  # CPU-optimalisaties voor CachyOS
+  export CFLAGS="$CFLAGS -march=native -O3"
+  export CXXFLAGS="$CXXFLAGS -march=native -O3"
+
+  # Configureer specifiek voor Linux, Second Life (Agni), AVX2 en Packaging
+  ./scripts/configure_firestorm.sh \
+    --platform linux \
+    --sl \
+    --package \
+    --avx2 \
+    --ninja \
+    --config \
+    -- \
+    -DVIEWER_CHANNEL="{{ firestorm_channel }}" \
+    -DENABLE_SIGNING=OFF \
+    -DISABLE_FATAL_WARNINGS=ON
+
+  # Start de eigenlijke compilatie via autobuild
+  autobuild build -p linux -c ReleaseFS_open
+}
+
+package() {
+  mkdir -p "$pkgdir$_install_dir"
+  mkdir -p "$pkgdir/usr/bin"
+  mkdir -p "$pkgdir/usr/share/applications"
+
+  # Kopieer de gecompileerde viewer binaries en assets naar de gewenste installatiemap
+  cp -r "$srcdir/Firestorm/build-linux-x86_64/newview/Release/"* "$pkgdir$_install_dir/"
+
+  # Maak de executable symlink aan in /usr/bin
+  ln -s "$_install_dir/firestorm-bin" "$pkgdir/usr/bin/firestorm"
+
+  # Plaats de geredenderde .desktop applicatie-snelkoppeling
+  install -Dm644 "$srcdir/firestorm.desktop" "$pkgdir/usr/share/applications/firestorm.desktop"
+}

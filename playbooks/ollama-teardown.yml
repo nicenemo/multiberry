@@ -4,6 +4,9 @@
   hosts: gaming_box
   become: true
 
+  vars:
+    pkg_output_dir: "/var/cache/custom-packages"
+
   tasks:
     # -------------------------------------------------------------------------
     # 1. Firewall Rule Removal
@@ -34,6 +37,15 @@
         path: /etc/systemd/system/ollama.service.d
         state: absent
 
+    - name: Remove Ollama CLI environment configuration drop-ins
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/environment.d/60-ollama-cli.conf
+        - /etc/profile.d/ollama.sh
+        - /etc/fish/conf.d/ollama.fish
+
     - name: Reload systemd daemon
       ansible.builtin.systemd:
         daemon_reload: true
@@ -44,11 +56,16 @@
         state: absent
 
     # -------------------------------------------------------------------------
-    # 4. Package Purge
+    # 4. Package Purge & Cache Clean
     # -------------------------------------------------------------------------
-    - name: Remove Ollama packages
+    - name: Purge Ollama pacman package
       community.general.pacman:
         name:
           - ollama
           - ollama-cuda
+        state: absent
+
+    - name: Remove custom built package files from cache
+      ansible.builtin.file:
+        path: "{{ pkg_output_dir }}"
         state: absent

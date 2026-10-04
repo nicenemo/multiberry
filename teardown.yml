@@ -4,6 +4,12 @@
 # Master Teardown Playbook
 # =============================================================================
 
+- name: Import OpenWebUI Teardown
+  ansible.builtin.import_playbook: playbooks/openwebui-teardown.yml
+
+- name: Import Ollama Models Teardown
+  ansible.builtin.import_playbook: playbooks/ollama-models-teardown.yml
+
 - name: Import Ollama Teardown
   ansible.builtin.import_playbook: playbooks/ollama-teardown.yml
 
@@ -15,6 +21,12 @@
 
 - name: Import Steam & Proton Teardown
   ansible.builtin.import_playbook: playbooks/steam-teardown.yml
+
+- name: Import Firestorm Teardown
+  ansible.builtin.import_playbook: playbooks/firestorm-teardown.yml
+
+- name: Import Flatpak Teardown
+  ansible.builtin.import_playbook: playbooks/flatpak-teardown.yml
 
 - name: Import NVIDIA GTX 1080 Teardown
   ansible.builtin.import_playbook: playbooks/nvidia1080-teardown.yml

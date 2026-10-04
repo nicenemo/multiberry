@@ -13,6 +13,12 @@
 - name: Import NVIDIA GTX 1080 Setup
   ansible.builtin.import_playbook: playbooks/nvidia1080-setup.yml
 
+- name: Import Flatpak Setup
+  ansible.builtin.import_playbook: playbooks/flatpak-setup.yml
+
+- name: Import Firestorm Setup
+  ansible.builtin.import_playbook: playbooks/firestorm-setup.yml
+
 - name: Import Steam & Proton Setup
   ansible.builtin.import_playbook: playbooks/steam-setup.yml
 
@@ -24,3 +30,9 @@
 
 - name: Import Ollama Setup
   ansible.builtin.import_playbook: playbooks/ollama-setup.yml
+
+- name: Import Ollama Models Setup
+  ansible.builtin.import_playbook: playbooks/ollama-models-setup.yml
+
+- name: Import OpenWebUI Setup
+  ansible.builtin.import_playbook: playbooks/openwebui-setup.yml

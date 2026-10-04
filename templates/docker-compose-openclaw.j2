@@ -1,0 +1,12 @@
+services:
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: openclaw
+    restart: unless-stopped
+    ports:
+      - "{{ openclaw_port | default(8080) }}:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://{{ ollama_ip_address }}:{{ ollama_port | default(11434) }}
+      - OPENCLAW_WORKSPACE=/app/workspace
+    volumes:
+      - /opt/data/openclaw-data:/app/workspace

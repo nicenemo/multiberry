@@ -1,0 +1,53 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install Ollama Models from Scraped Catalog
+  hosts: gaming_box
+  become: false
+
+  vars:
+    ollama_api_endpoint: "http://{{ ollama_ip_address | default('127.0.0.1') }}:{{ ollama_port | default(11434) }}"
+
+  tasks:
+    - name: Check if scraped models var file exists
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../vars/ollama_models.yml"
+      delegate_to: localhost
+      register: ollama_vars_file
+
+    - name: Load scraped models variable file if present
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../vars/ollama_models.yml"
+      when: ollama_vars_file.stat.exists
+
+    - name: Fetch currently installed models from Ollama API
+      ansible.builtin.uri:
+        url: "{{ ollama_api_endpoint }}/api/tags"
+        method: GET
+        status_code: 200
+      register: installed_models_response
+      when:
+        - ollama_vars_file.stat.exists
+        - ollama_models_to_pull is defined
+        - (ollama_models_to_pull | length) > 0
+
+    - name: Extract installed model names
+      ansible.builtin.set_fact:
+        installed_models: "{{ installed_models_response.json.models | default([]) | map(attribute='name') | list }}"
+      when:
+        - installed_models_response is defined
+        - installed_models_response.json is defined
+
+    - name: Pull missing Ollama models
+      ansible.builtin.command:
+        cmd: "ollama pull {{ item }}"
+      environment:
+        OLLAMA_HOST: "{{ ollama_api_endpoint }}"
+      loop: "{{ ollama_models_to_pull | default([]) }}"
+      when:
+        - ollama_vars_file.stat.exists
+        - ollama_models_to_pull is defined
+        - (ollama_models_to_pull | length) > 0
+        - item not in (installed_models | default([]))
+        - (item + ':latest') not in (installed_models | default([]))
+      register: pull_result
+      changed_when: true

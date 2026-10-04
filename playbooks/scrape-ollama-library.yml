@@ -1,0 +1,39 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Scrape Ollama Web Library and Generate Models Variable File
+  hosts: gaming_box
+  gather_facts: false
+  become: false
+
+  vars:
+    output_vars_file: "{{ playbook_dir }}/../vars/ollama_models.yml"
+    template_file: "{{ playbook_dir }}/../templates/ollama_models.yml.j2"
+
+  tasks:
+    - name: Ensure target vars directory exists
+      ansible.builtin.file:
+        path: "{{ output_vars_file | dirname }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+
+    - name: Fetch live HTML catalog from Ollama web library
+      ansible.builtin.uri:
+        url: "https://ollama.com/library"
+        method: GET
+        return_content: true
+        headers:
+          User-Agent: "Mozilla/5.0 (X11; Linux x86_64) Ansible-Catalog-Scraper"
+      delegate_to: localhost
+      register: ollama_web_page
+
+    - name: Render dynamic catalog directly into vars file via Jinja template
+      ansible.builtin.template:
+        src: "{{ template_file }}"
+        dest: "{{ output_vars_file }}"
+        mode: '0644'
+      delegate_to: localhost
+      vars:
+        html_content: "{{ ollama_web_page.content }}"
+        filter_max_size_b: "{{ ollama_max_model_param_size_b | default(8) }}"
+        filter_max_age_unit: "{{ ollama_max_age_unit | default('none') }}"

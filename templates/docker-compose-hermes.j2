@@ -1,0 +1,10 @@
+services:
+  hermes-agent:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-agent
+    restart: unless-stopped
+    environment:
+      - OLLAMA_BASE_URL=http://{{ ollama_ip_address }}:{{ ollama_port | default(11434) }}
+      - TELEGRAM_BOT_TOKEN={{ hermes_telegram_bot_token | default('') }}
+    volumes:
+      - /opt/data/hermes-data:/app/memory

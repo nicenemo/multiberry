@@ -1,0 +1,40 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown Open WebUI Stack & Remove Firewall Rules
+  hosts: gaming_box
+  become: true
+
+  vars:
+    open_webui_port: 3000
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Container Termination
+    # -------------------------------------------------------------------------
+    - name: Stop and remove Open WebUI Docker Compose stack
+      community.docker.docker_compose_v2:
+        project_src: /opt/data/compose/open-webui
+        state: absent
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 2. Firewall Rule Cleanup
+    # -------------------------------------------------------------------------
+    - name: Remove UFW firewall rule for Open WebUI
+      community.general.ufw:
+        rule: allow
+        port: "{{ open_webui_port | string }}"
+        proto: tcp
+        delete: true
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. Storage Cleanup
+    # -------------------------------------------------------------------------
+    - name: Purge Open WebUI compose and application data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/data/compose/open-webui
+        - /opt/data/open-webui-data

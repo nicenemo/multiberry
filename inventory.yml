@@ -16,26 +16,30 @@ all:
       hosts:
         multiberry:
           ansible_host: 192.168.105.101
-          msfs_user: kruse
+          target_user: kruse
           secondary_user: giesen
+          firestorm_users:
+            - kruse
+            - giesen
           steam_users:
             - kruse
             - giesen
-          msfs_cache_path: "/opt/fs2024/msfs_rolling_cache"
           ollama_data_path: "/opt/data/ollama"
           ollama_ip_address: 192.168.105.101
-          ollama_port: 11434  # Optional: defaults to 11434 in playbooks if omitted
+          ollama_port: 11434
+          ollama_max_model_param_size_b: 8
+          ollama_max_age_unit: "none" 
           additional_drives:
-            - device: "/dev/nvme1n1"
-              partition: "/dev/nvme1n1p1"
-              mount_path: "/opt/fs2024"
-              fstype: "btrfs"
-              opts: "defaults,noatime,compress=zstd"
-              owner: "kruse"
-              group: "kruse"
-              mode: "0755"
-              model: "NVMe Secondary SSD"
-              capacity: "1TB"
+            # - device: "/dev/nvme1n1"
+            #   partition: "/dev/nvme1n1p1"
+            #   mount_path: "/opt/fs2024"
+            #   fstype: "btrfs"
+            #   opts: "defaults,noatime,compress=zstd"
+            #   owner: "kruse"
+            #   group: "kruse"
+            #   mode: "0755"
+            #   model: "NVMe Secondary SSD"
+            #   capacity: "1TB"
 
             - device: "/dev/sdb"
               partition: "/dev/sdb1"
@@ -44,7 +48,7 @@ all:
               opts: "defaults,noatime,compress=zstd"
               owner: "root"
               group: "games"
-              mode: "2775"  # SGID: zorgt dat nieuwe mappen/bestanden de 'games' groep erven
+              mode: "2775"
               model: "Samsung SSD 860"
               capacity: "1TB (931.51 GiB)"
 

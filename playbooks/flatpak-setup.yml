@@ -1,0 +1,24 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Install and Configure Flatpak & Flathub
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Core Package Installation
+    # -------------------------------------------------------------------------
+    - name: Ensure Flatpak package is installed
+      community.general.pacman:
+        name: flatpak
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. Remote Repository Configuration
+    # -------------------------------------------------------------------------
+    - name: Ensure Flathub repository is present system-wide
+      community.general.flatpak_remote:
+        name: flathub
+        state: present
+        flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+        method: system
