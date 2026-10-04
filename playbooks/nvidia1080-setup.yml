@@ -34,16 +34,12 @@
       changed_when: true
 
     # -------------------------------------------------------------------------
-    # 2. Package Installation & DKMS Build
+    # 2. Package Installation & DKMS Build (Multi-Kernel Support)
     # -------------------------------------------------------------------------
-    - name: Get running kernel version
-      ansible.builtin.command: uname -r
-      register: kernel_version
-      changed_when: false
-
-    - name: Install NVIDIA 580xx DKMS & Utilities
+    - name: Install matching Linux headers & NVIDIA 580xx DKMS Utilities
       community.general.pacman:
         name:
+          - linux-cachyos-headers
           - linux-cachyos-lts-headers
           - nvidia-580xx-dkms
           - nvidia-580xx-utils
@@ -51,12 +47,35 @@
           - egl-wayland
         state: present
 
-    - name: Ensure DKMS autoinstall builds modules for running kernel
-      ansible.builtin.command: dkms autoinstall -k {{ kernel_version.stdout }}
+    - name: Get installed NVIDIA DKMS package version
+      ansible.builtin.shell: pacman -Q nvidia-580xx-dkms | awk '{print $2}' | cut -d'-' -f1
+      register: nvidia_dkms_ver
+      changed_when: false
+
+    - name: Detect all installed kernel versions
+      ansible.builtin.command: ls /usr/lib/modules
+      register: installed_kernels
+      changed_when: false
+
+    - name: Force DKMS build for all installed kernels
+      ansible.builtin.command: "dkms build -m nvidia -v {{ nvidia_dkms_ver.stdout }} -k {{ item }} --force"
+      loop: "{{ installed_kernels.stdout_lines }}"
+      register: dkms_build_out
       changed_when: true
 
-    - name: Verify NVIDIA kernel module file physically exists on disk
-      ansible.builtin.shell: "find /usr/lib/modules/{{ kernel_version.stdout }}/ -name 'nvidia.ko*' | grep -q nvidia"
+    - name: Force DKMS install for all installed kernels
+      ansible.builtin.command: "dkms install -m nvidia -v {{ nvidia_dkms_ver.stdout }} -k {{ item }} --force"
+      loop: "{{ installed_kernels.stdout_lines }}"
+      register: dkms_install_out
+      changed_when: true
+
+    - name: Update kernel module dependency map for all installed kernels
+      ansible.builtin.command: "depmod -a {{ item }}"
+      loop: "{{ installed_kernels.stdout_lines }}"
+      changed_when: true
+
+    - name: Verify NVIDIA kernel module files physically exist on disk
+      ansible.builtin.shell: "find /usr/lib/modules/ -name 'nvidia*.ko*' | grep -q nvidia"
       register: nvidia_file_check
       failed_when: nvidia_file_check.rc != 0
       changed_when: false
@@ -80,11 +99,11 @@
         group: root
         mode: '0644'
 
-    - name: Set NVIDIA Modprobe Options
+    - name: Set NVIDIA Modprobe Options (Including VRAM Allocation & Memory Preservation)
       ansible.builtin.copy:
         content: |
           options nvidia-drm modeset=1 fbdev=1
-          options nvidia NVreg_PreserveVideoMemoryAllocations=1
+          options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_AllocHeapSizeMb=128
         dest: /etc/modprobe.d/nvidia.conf
         owner: root
         group: root
@@ -95,18 +114,22 @@
         path: /etc/kernel/cmdline
         backrefs: true
         regexp: '^(.*)$'
-        line: '\1 nvidia-drm.modeset=1 nvidia.NVreg_PreserveVideoMemoryAllocations=1'
+        line: '\1 nvidia-drm.modeset=1 nvidia.NVreg_PreserveVideoMemoryAllocations=1 nvidia.NVreg_AllocHeapSizeMb=128'
       notify: Regenerate Limine entries
 
-    - name: Deploy GTX 1080 environment configuration
+    - name: Deploy GTX 1080 environment configuration (Wayland & KWin VRAM tweaks)
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../files/50-nvidia-gtx1080.conf"
+        content: |
+          GBM_BACKEND=nvidia-drm
+          __GLX_VENDOR_LIBRARY_NAME=nvidia
+          ENABLE_VIRTUAL_CONTEXT=1
+          KWIN_DRM_USE_MODIFIER=0
         dest: /etc/environment.d/50-nvidia-gtx1080.conf
         owner: root
         group: root
         mode: '0644'
 
-    - name: Enable systemd NVIDIA power management services
+    - name: Enable systemd NVIDIA power & memory management services
       ansible.builtin.systemd:
         name: "{{ item }}"
         enabled: true
@@ -141,7 +164,7 @@
         replace: 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm \1)'
       when: "'nvidia' not in lookup('file', '/etc/mkinitcpio.conf')"
 
-    - name: Rebuild initramfs images
+    - name: Rebuild initramfs images for all installed kernels
       ansible.builtin.command: mkinitcpio -P
       changed_when: true
 
@@ -189,7 +212,7 @@
 
     - name: Display success status
       ansible.builtin.debug:
-        msg: "SUCCESS: Reboot complete. NVIDIA 580xx drivers active and display DRM verified."
+        msg: "SUCCESS: Reboot complete. NVIDIA 580xx drivers active, VRAM memory preservation configured, and display DRM verified."
 
   handlers:
     - name: Regenerate Limine entries
