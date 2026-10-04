@@ -6,7 +6,28 @@
 
   tasks:
     # -------------------------------------------------------------------------
-    # 1. Remove NVIDIA Configurations & Drop-ins
+    # 1. Disable Services & Clean Command Line
+    # -------------------------------------------------------------------------
+    - name: Disable systemd NVIDIA power management services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      loop:
+        - nvidia-suspend.service
+        - nvidia-hibernate.service
+        - nvidia-resume.service
+      failed_when: false
+
+    - name: Clean NVIDIA kernel parameters from Limine cmdline
+      ansible.builtin.replace:
+        path: /etc/kernel/cmdline
+        regexp: '\s*(nvidia-drm\.modeset=1|nvidia\.NVreg_PreserveVideoMemoryAllocations=1)'
+        replace: ''
+      notify: Regenerate Limine entries teardown
+
+    # -------------------------------------------------------------------------
+    # 2. Remove NVIDIA Configurations & Drop-ins
     # -------------------------------------------------------------------------
     - name: Remove CachyOS / CHWD mkinitcpio drop-in configurations
       ansible.builtin.file:
@@ -75,7 +96,7 @@
         mode: '0644'
 
     # -------------------------------------------------------------------------
-    # 2. Package Purge & Module Obliteration
+    # 3. Package Purge & Module Obliteration
     # -------------------------------------------------------------------------
     - name: Ensure linux-firmware is installed for Nouveau support
       ansible.builtin.package:
@@ -99,7 +120,7 @@
         state: absent
 
     # -------------------------------------------------------------------------
-    # 3. Rebuild Initramfs & Module Maps
+    # 4. Rebuild Initramfs & Module Maps
     # -------------------------------------------------------------------------
     - name: Update kernel module dependencies map (depmod)
       ansible.builtin.command: depmod -a
@@ -109,6 +130,9 @@
       ansible.builtin.command: mkinitcpio -P
       changed_when: true
 
+    - name: Flush handlers to execute Limine regeneration
+      ansible.builtin.meta: flush_handlers
+
     - name: Update Limine bootloader entries
       ansible.builtin.command: limine-update
       register: limine_out
@@ -116,7 +140,7 @@
       changed_when: limine_out.rc == 0
 
     # -------------------------------------------------------------------------
-    # 4. Reboot
+    # 5. Reboot
     # -------------------------------------------------------------------------
     - name: Reboot system to transition back to Nouveau KMS driver
       ansible.builtin.reboot:
@@ -128,7 +152,7 @@
         test_command: uptime
 
     # -------------------------------------------------------------------------
-    # 5. Strict Post-Reboot Verification
+    # 6. Strict Post-Reboot Verification
     # -------------------------------------------------------------------------
     - name: Verify NVIDIA driver is completely UNLOADED
       ansible.builtin.shell: "! grep -E '^nvidia ' /proc/modules"
@@ -153,3 +177,8 @@
           - drm_card_sysfs.stat.exists
         fail_msg: "DRM Card0 Sysfs node was not created under Nouveau."
         success_msg: "SUCCESS: NVIDIA driver fully purged and Nouveau active post-reboot."
+
+  handlers:
+    - name: Regenerate Limine entries teardown
+      ansible.builtin.command: limine-entry-tool
+      changed_when: true

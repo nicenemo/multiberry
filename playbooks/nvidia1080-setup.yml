@@ -1,6 +1,6 @@
 #!/usr/bin/env ansible-playbook
 ---
-- name: Setup NVIDIA GTX 1080 (Pascal) Drivers
+- name: Setup NVIDIA GTX 1080 (Pascal) Drivers & Wayland Stability
   hosts: gaming_box
   become: true
 
@@ -48,6 +48,7 @@
           - nvidia-580xx-dkms
           - nvidia-580xx-utils
           - lib32-nvidia-580xx-utils
+          - egl-wayland
         state: present
 
     - name: Ensure DKMS autoinstall builds modules for running kernel
@@ -61,7 +62,7 @@
       changed_when: false
 
     # -------------------------------------------------------------------------
-    # 3. Driver & KMS Configuration
+    # 3. Driver, Modprobe & Limine Kernel Command Line Configuration
     # -------------------------------------------------------------------------
     - name: Ensure NVIDIA is not blacklisted from previous teardown
       ansible.builtin.file:
@@ -89,6 +90,14 @@
         group: root
         mode: '0644'
 
+    - name: Apply NVIDIA parameters to Limine kernel cmdline
+      ansible.builtin.lineinfile:
+        path: /etc/kernel/cmdline
+        backrefs: true
+        regexp: '^(.*)$'
+        line: '\1 nvidia-drm.modeset=1 nvidia.NVreg_PreserveVideoMemoryAllocations=1'
+      notify: Regenerate Limine entries
+
     - name: Deploy GTX 1080 environment configuration
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../files/50-nvidia-gtx1080.conf"
@@ -96,6 +105,16 @@
         owner: root
         group: root
         mode: '0644'
+
+    - name: Enable systemd NVIDIA power management services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - nvidia-suspend.service
+        - nvidia-hibernate.service
+        - nvidia-resume.service
+      failed_when: false
 
     - name: Ensure NVIDIA modules auto-load on boot
       ansible.builtin.copy:
@@ -125,6 +144,9 @@
     - name: Rebuild initramfs images
       ansible.builtin.command: mkinitcpio -P
       changed_when: true
+
+    - name: Flush handlers to execute Limine regeneration if needed
+      ansible.builtin.meta: flush_handlers
 
     - name: Update Limine bootloader entries
       ansible.builtin.command: limine-update
@@ -168,3 +190,8 @@
     - name: Display success status
       ansible.builtin.debug:
         msg: "SUCCESS: Reboot complete. NVIDIA 580xx drivers active and display DRM verified."
+
+  handlers:
+    - name: Regenerate Limine entries
+      ansible.builtin.command: limine-entry-tool
+      changed_when: true
