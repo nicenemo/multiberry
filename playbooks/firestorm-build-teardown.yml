@@ -5,8 +5,8 @@
   become: true
 
   vars:
-    build_dir: "/var/tmp/firestorm-package-build"
-    pkg_output_dir: "/var/cache/custom-packages"
+    build_dir: '/var/tmp/firestorm-package-build'
+    pkg_output_dir: '/var/cache/custom-packages'
 
   tasks:
     - name: Remove temporary Firestorm build directory

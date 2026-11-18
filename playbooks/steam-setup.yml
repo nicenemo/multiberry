@@ -4,6 +4,9 @@
   hosts: gaming_box
   become: true
 
+  vars:
+    project_root: "{{ playbook_dir | dirname }}"
+
   tasks:
     # -------------------------------------------------------------------------
     # 1. Install Steam & Proton Dependencies
@@ -109,7 +112,7 @@
     # -------------------------------------------------------------------------
     - name: Deploy Steam GTX 1080 environment config
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../files/80-steam-gtx1080.conf"
+        src: "{{ project_root }}/files/80-steam-gtx1080.conf"
         dest: /etc/environment.d/80-steam-gtx1080.conf
         owner: root
         group: root

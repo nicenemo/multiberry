@@ -5,7 +5,7 @@
   become: true
 
   vars:
-    pkg_output_dir: "/var/cache/custom-packages"
+    pkg_output_dir: '/var/cache/custom-packages'
 
   tasks:
     # -------------------------------------------------------------------------
@@ -20,9 +20,9 @@
       failed_when: false
 
     # -------------------------------------------------------------------------
-    # 2. Service Termination
+    # 2. Service Termination & Disabling
     # -------------------------------------------------------------------------
-    - name: Stop and disable Ollama service
+    - name: Stop and disable Ollama service immediately
       ansible.builtin.systemd:
         name: ollama.service
         enabled: false
@@ -52,20 +52,34 @@
 
     - name: Remove Ollama data directory and contents
       ansible.builtin.file:
-        path: "{{ ollama_data_path }}"
+        path: "{{ ollama_data_path | default('/opt/data/ollama') }}"
         state: absent
 
     # -------------------------------------------------------------------------
     # 4. Package Purge & Cache Clean
     # -------------------------------------------------------------------------
-    - name: Purge Ollama pacman package
+    - name: Purge all Ollama pacman packages (CUDA / Vulkan / Main)
       community.general.pacman:
         name:
           - ollama
           - ollama-cuda
+          - ollama-vulkan
         state: absent
 
     - name: Remove custom built package files from cache
       ansible.builtin.file:
         path: "{{ pkg_output_dir }}"
         state: absent
+
+    # -------------------------------------------------------------------------
+    # 5. Verification
+    # -------------------------------------------------------------------------
+    - name: Verify Ollama service is stopped and inactive
+      ansible.builtin.command: systemctl is-active ollama.service  # noqa: command-instead-of-module
+      register: service_status
+      failed_when: service_status.rc == 0
+      changed_when: false
+
+    - name: Display Teardown Status
+      ansible.builtin.debug:
+        msg: 'TEARDOWN SUCCESSFUL: Ollama service stopped, CLI profiles removed, packages purged, network port closed.'

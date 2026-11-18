@@ -5,6 +5,7 @@
   become: true
 
   vars:
+    project_root: "{{ playbook_dir | dirname }}"
     openclaw_port: 8080
 
   tasks:
@@ -27,7 +28,7 @@
     # -------------------------------------------------------------------------
     - name: Deploy OpenClaw docker-compose file
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/docker-compose-openclaw.j2"
+        src: "{{ project_root }}/templates/docker-compose-openclaw.j2"
         dest: /opt/data/compose/openclaw/docker-compose.yml
         owner: root
         group: docker
@@ -46,4 +47,4 @@
         rule: allow
         port: "{{ openclaw_port | string }}"
         proto: tcp
-        comment: "OpenClaw access"
+        comment: 'OpenClaw access'

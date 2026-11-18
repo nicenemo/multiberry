@@ -1,0 +1,52 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown OpenRGB Engine, UniCorne Rules & User Services
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Remove Systemd Service & Helper Scripts
+    # -------------------------------------------------------------------------
+    - name: Remove systemd user service for OpenRGB SDK
+      ansible.builtin.file:
+        path: /etc/systemd/user/openrgb-sdk.service
+        state: absent
+
+    - name: Remove RGB helper scripts
+      ansible.builtin.file:
+        path: /usr/local/bin/set-rgb-profile
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # 2. Remove Hardware Access Configuration
+    # -------------------------------------------------------------------------
+    - name: Remove udev rule for UniCorne keyboard
+      ansible.builtin.file:
+        path: /etc/udev/rules.d/50-unicorne.rules
+        state: absent
+      notify:
+        - Reload udev rules
+        - Trigger udev subsystem
+
+    # -------------------------------------------------------------------------
+    # 3. Package Purge
+    # -------------------------------------------------------------------------
+    - name: Purge OpenRGB package
+      community.general.pacman:
+        name:
+          - openrgb
+        state: absent
+
+    - name: Display teardown summary
+      ansible.builtin.debug:
+        msg: 'TEARDOWN COMPLETE: OpenRGB, UniCorne rules and related integration files removed.'
+
+  handlers:
+    - name: Reload udev rules
+      ansible.builtin.command: udevadm control --reload-rules
+      changed_when: true
+
+    - name: Trigger udev subsystem
+      ansible.builtin.command: udevadm trigger --subsystem-match=usb
+      changed_when: true

@@ -1,0 +1,48 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Teardown CPU Fan LED Controller USB Power Rule
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Remove Udev Rule
+    # -------------------------------------------------------------------------
+    - name: Remove udev rule for CPU Fan LED controller
+      ansible.builtin.file:
+        path: /etc/udev/rules.d/99-cpu-fan-led-power.rules
+        state: absent
+      notify: Reload udev rules
+
+    # -------------------------------------------------------------------------
+    # 2. Remove Kernel Parameter
+    # -------------------------------------------------------------------------
+    - name: Remove usbcore.autosuspend parameter from Limine cmdline
+      ansible.builtin.replace:
+        path: /etc/kernel/cmdline
+        regexp: '\s*usbcore\.autosuspend=-1'
+        replace: ''
+      notify: Regenerate Limine entries
+
+    # -------------------------------------------------------------------------
+    # 3. Reload & Apply
+    # -------------------------------------------------------------------------
+    - name: Flush handlers to apply configuration cleanup
+      ansible.builtin.meta: flush_handlers
+
+    - name: Trigger udev to restore default USB power settings
+      ansible.builtin.command: udevadm trigger --subsystem-match=usb
+      changed_when: true
+
+    - name: Display status
+      ansible.builtin.debug:
+        msg: 'TEARDOWN COMPLETE: Default USB power management restored.'
+
+  handlers:
+    - name: Reload udev rules
+      ansible.builtin.command: udevadm control --reload-rules
+      changed_when: true
+
+    - name: Regenerate Limine entries
+      ansible.builtin.command: limine-entry-tool
+      changed_when: true

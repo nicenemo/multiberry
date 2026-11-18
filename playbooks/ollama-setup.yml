@@ -1,34 +1,55 @@
 #!/usr/bin/env ansible-playbook
 ---
-- name: Install and Configure Custom Ollama Package
+- name: Install, Configure and Start Ollama Service
   hosts: gaming_box
   become: true
 
   vars:
-    pkg_output_dir: "/var/cache/custom-packages"
+    project_root: "{{ playbook_dir | dirname }}"
+    pkg_output_dir: '/var/cache/custom-packages'
 
   tasks:
     # -------------------------------------------------------------------------
-    # 1. Package Installation (Custom Local Package)
+    # 1. Package Installation (Normal / Vulkan / Custom)
     # -------------------------------------------------------------------------
+    - name: Install official Ollama with CUDA backend via Pacman
+      community.general.pacman:
+        name:
+          - ollama
+          - ollama-cuda
+        state: present
+      when: (ollama_package_type | default('normal')) == 'normal'
+
+    - name: Install official Ollama with Vulkan backend via Pacman
+      community.general.pacman:
+        name:
+          - ollama
+          - ollama-vulkan
+        state: present
+      when: (ollama_package_type | default('normal')) == 'vulkan'
+
     - name: Find latest custom Ollama package in cache
       ansible.builtin.find:
         paths: "{{ pkg_output_dir }}"
-        patterns: "ollama-*.pkg.tar.zst"
+        patterns: 'ollama-*.pkg.tar.zst'
       register: custom_pkg
+      when: (ollama_package_type | default('normal')) == 'custom'
 
     - name: Fail if custom package is not found
       ansible.builtin.fail:
         msg: "Geen op maat gemaakt ollama pakket gevonden in {{ pkg_output_dir }}. Draai eerst ollama-build.yml."
-      when: custom_pkg.files | length == 0
+      when:
+        - (ollama_package_type | default('normal')) == 'custom'
+        - custom_pkg.files | length == 0
 
     - name: Install custom compiled Ollama package via Pacman
       community.general.pacman:
         name: "{{ (custom_pkg.files | sort(attribute='mtime') | last).path }}"
         state: present
+      when: (ollama_package_type | default('normal')) == 'custom'
 
     # -------------------------------------------------------------------------
-    # 2. Firewall Configuration (UFW)
+    # 2. Firewall & Network Setup (Allow External PC Connections)
     # -------------------------------------------------------------------------
     - name: Ensure UFW service is enabled and started
       ansible.builtin.systemd:
@@ -36,19 +57,19 @@
         enabled: true
         state: started
 
-    - name: Allow incoming traffic on Ollama port via UFW
+    - name: Allow incoming external traffic on Ollama port via UFW
       community.general.ufw:
         rule: allow
         port: "{{ ollama_port | default(11434) | string }}"
         proto: tcp
-        comment: 'Ollama API Service'
+        comment: 'Ollama API Service (External Access)'
 
     # -------------------------------------------------------------------------
     # 3. Directory Provisioning
     # -------------------------------------------------------------------------
     - name: Create Ollama data directory on dedicated storage
       ansible.builtin.file:
-        path: "{{ ollama_data_path }}"
+        path: "{{ ollama_data_path | default('/opt/data/ollama') }}"
         state: directory
         owner: ollama
         group: ollama
@@ -63,11 +84,11 @@
         mode: '0755'
 
     # -------------------------------------------------------------------------
-    # 4. Environment & Service Override Configuration
+    # 4. Environment & Shell CLI Configurations Deployment
     # -------------------------------------------------------------------------
     - name: Deploy Ollama CLI environment drop-in for Systemd/PAM
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/ollama-cli.conf.j2"
+        src: "{{ project_root }}/templates/ollama-cli.conf.j2"
         dest: /etc/environment.d/60-ollama-cli.conf
         owner: root
         group: root
@@ -75,7 +96,7 @@
 
     - name: Deploy Ollama CLI environment drop-in for Bash/Zsh (profile.d)
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/ollama-env.sh.j2"
+        src: "{{ project_root }}/templates/ollama-env.sh.j2"
         dest: /etc/profile.d/ollama.sh
         owner: root
         group: root
@@ -91,15 +112,15 @@
 
     - name: Deploy Ollama CLI environment drop-in for Fish shell
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/ollama-env.fish.j2"
+        src: "{{ project_root }}/templates/ollama-env.fish.j2"
         dest: /etc/fish/conf.d/ollama.fish
         owner: root
         group: root
         mode: '0644'
 
-    - name: Deploy systemd service drop-in configuration using template
+    - name: Deploy systemd service drop-in configuration
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/ollama-service.conf.j2"
+        src: "{{ project_root }}/templates/ollama-service.conf.j2"
         dest: /etc/systemd/system/ollama.service.d/override.conf
         owner: root
         group: root
@@ -109,20 +130,32 @@
         - Restart Ollama service
 
     # -------------------------------------------------------------------------
-    # 5. Service Activation
+    # 5. Service Activation & Direct Start
     # -------------------------------------------------------------------------
-    - name: Ensure Ollama service is enabled and started
+    - name: Flush handlers to execute systemd daemon-reload before service start
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure Ollama service is enabled and STARTED immediately
       ansible.builtin.systemd:
         name: ollama.service
         enabled: true
         state: started
 
-  handlers:
-    - name: Reload systemd daemon
-      ansible.builtin.systemd:
-        daemon_reload: true
+    # -------------------------------------------------------------------------
+    # 6. Service Verification & Health Check
+    # -------------------------------------------------------------------------
+    - name: Wait for Ollama port to become active on network interface
+      ansible.builtin.wait_for:
+        host: "{{ ollama_ip_address | default('127.0.0.1') }}"
+        port: "{{ ollama_port | default(11434) }}"
+        state: started
+        timeout: 15
 
-    - name: Restart Ollama service
-      ansible.builtin.systemd:
-        name: ollama.service
-        state: restarted
+    - name: Verify Ollama API health endpoint
+      ansible.builtin.uri:
+        url: "http://{{ ollama_ip_address | default('127.0.0.1') }}:{{ ollama_port | default(11434) }}/"
+        method: GET
+        status_code: 200
+      register: ollama_health
+      until: ollama_health.status == 200
+      retries: 5

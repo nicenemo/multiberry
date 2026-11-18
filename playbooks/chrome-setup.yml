@@ -50,6 +50,7 @@
     - name: Refresh KDE launcher cache for active user sessions
       ansible.builtin.command:
         cmd: kbuildsycoca6 --noincremental
+      become: true
       become_user: "{{ item.name | default(item) }}"
       loop: "{{ target_users }}"
       changed_when: false

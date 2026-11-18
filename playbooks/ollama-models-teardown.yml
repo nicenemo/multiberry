@@ -8,26 +8,30 @@
     ollama_api_endpoint: "http://{{ ollama_ip_address | default('127.0.0.1') }}:{{ ollama_port | default(11434) }}"
 
   tasks:
-    - name: Check if scraped models var file exists
-      ansible.builtin.stat:
-        path: "{{ playbook_dir }}/../vars/ollama_models.yml"
-      delegate_to: localhost
-      register: ollama_vars_file
-
-    - name: Load scraped models variable file if present
+    - name: Load pull list variable file
       ansible.builtin.include_vars:
-        file: "{{ playbook_dir }}/../vars/ollama_models.yml"
-      when: ollama_vars_file.stat.exists
+        file: "{{ playbook_dir }}/../vars/ollama_pull.yml"
+      failed_when: false
 
-    - name: Remove models defined in pull list
+    - name: Build consolidated models list for teardown
+      ansible.builtin.set_fact:
+        effective_models_to_remove: >-
+          {{
+            ((ollama_models_to_pull | default([]))
+            + (ollama_selected_models | default([]))
+            + (ollama_hf_models | default([])))
+            | unique
+            | list
+          }}
+
+    - name: Remove models defined in pull list and inventory
       ansible.builtin.command:
         cmd: "ollama rm {{ item }}"
       environment:
         OLLAMA_HOST: "{{ ollama_api_endpoint }}"
-      loop: "{{ ollama_models_to_pull | default([]) }}"
+      loop: "{{ effective_models_to_remove | default([]) }}"
       when:
-        - ollama_vars_file.stat.exists
-        - ollama_models_to_pull is defined
-        - (ollama_models_to_pull | length) > 0
+        - effective_models_to_remove is defined
+        - (effective_models_to_remove | length) > 0
       failed_when: false
       changed_when: true

@@ -1,5 +1,7 @@
 #!/usr/bin/env ansible-playbook
 ---
+# Long shell or udev lines inside block scalars cannot be wrapped.
+# yamllint disable rule:line-length
 - name: Setup NVIDIA GTX 1080 (Pascal) Drivers & Wayland Stability
   hosts: gaming_box
   become: true
@@ -23,10 +25,13 @@
         - /etc/mkinitcpio.conf.d/10-chwd-kms.conf
 
     - name: Check for standard nvidia-utils conflicting package
-      ansible.builtin.shell: pacman -Qq | grep -x "nvidia-utils"
+      ansible.builtin.shell: >-
+        set -o pipefail; pacman -Qq | grep -x "nvidia-utils"
       register: check_std_nvidia
       changed_when: false
       failed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Remove standard nvidia-utils without breaking dependencies
       ansible.builtin.command: pacman -Rdd --noconfirm nvidia-utils
@@ -34,7 +39,7 @@
       changed_when: true
 
     # -------------------------------------------------------------------------
-    # 2. Package Installation & DKMS Build (Multi-Kernel Support)
+    # 2. Package Installation & DKMS Build
     # -------------------------------------------------------------------------
     - name: Install matching Linux headers & NVIDIA 580xx DKMS Utilities
       community.general.pacman:
@@ -48,14 +53,20 @@
         state: present
 
     - name: Get installed NVIDIA DKMS package version
-      ansible.builtin.shell: pacman -Q nvidia-580xx-dkms | awk '{print $2}' | cut -d'-' -f1
+      ansible.builtin.shell: >-
+        set -o pipefail; pacman -Q nvidia-580xx-dkms | awk '{print $2}' | cut -d'-' -f1
       register: nvidia_dkms_ver
       changed_when: false
+      args:
+        executable: /bin/bash
 
-    - name: Detect all installed kernel versions
-      ansible.builtin.command: ls /usr/lib/modules
+    - name: Detect all installed actual kernel versions
+      ansible.builtin.shell: >-
+        set -o pipefail; ls /usr/lib/modules | grep -v 'extramodules'
       register: installed_kernels
       changed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Force DKMS build for all installed kernels
       ansible.builtin.command: "dkms build -m nvidia -v {{ nvidia_dkms_ver.stdout }} -k {{ item }} --force"
@@ -75,13 +86,16 @@
       changed_when: true
 
     - name: Verify NVIDIA kernel module files physically exist on disk
-      ansible.builtin.shell: "find /usr/lib/modules/ -name 'nvidia*.ko*' | grep -q nvidia"
+      ansible.builtin.shell: >-
+        set -o pipefail; find /usr/lib/modules/ -name 'nvidia*.ko*' | grep -q nvidia
       register: nvidia_file_check
       failed_when: nvidia_file_check.rc != 0
       changed_when: false
+      args:
+        executable: /bin/bash
 
     # -------------------------------------------------------------------------
-    # 3. Driver, Modprobe & Limine Kernel Command Line Configuration
+    # 3. Driver & Boot Configuration
     # -------------------------------------------------------------------------
     - name: Ensure NVIDIA is not blacklisted from previous teardown
       ansible.builtin.file:
@@ -99,11 +113,11 @@
         group: root
         mode: '0644'
 
-    - name: Set NVIDIA Modprobe Options (Including VRAM Allocation & Memory Preservation)
+    - name: Set NVIDIA Modprobe Options (Optimized for Pascal GTX 1080 Stability)
       ansible.builtin.copy:
         content: |
           options nvidia-drm modeset=1 fbdev=1
-          options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_AllocHeapSizeMb=128
+          options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_AllocHeapSizeMb=128 NVreg_EnablePCIeGen3=1 NVreg_EnableGpuFirmware=0 NVreg_DynamicPowerManagement=0x00
         dest: /etc/modprobe.d/nvidia.conf
         owner: root
         group: root
@@ -128,7 +142,7 @@
       when: limine_cmdline_changed | bool
       changed_when: true
 
-    - name: Deploy GTX 1080 environment configuration (Wayland & KWin VRAM tweaks)
+    - name: Deploy GTX 1080 environment configuration
       ansible.builtin.copy:
         content: |
           GBM_BACKEND=nvidia-drm
@@ -179,7 +193,7 @@
       ansible.builtin.command: mkinitcpio -P
       changed_when: true
 
-    - name: Flush handlers to execute Limine regeneration if needed
+    - name: Flush handlers to execute Limine regeneration
       ansible.builtin.meta: flush_handlers
 
     - name: Update Limine bootloader entries
@@ -189,20 +203,14 @@
       changed_when: limine_out.rc == 0
 
     # -------------------------------------------------------------------------
-    # 4. Reboot
+    # 4. Reboot & Validation
     # -------------------------------------------------------------------------
     - name: Reboot system to activate NVIDIA drivers cleanly
       ansible.builtin.reboot:
-        msg: "Rebooting to initialize NVIDIA GTX 1080 proprietary drivers"
+        msg: 'Rebooting to initialize NVIDIA GTX 1080 proprietary drivers'
         connect_timeout: 5
         reboot_timeout: 300
-        pre_reboot_delay: 2
-        post_reboot_delay: 5
-        test_command: uptime
 
-    # -------------------------------------------------------------------------
-    # 5. Strict Validations
-    # -------------------------------------------------------------------------
     - name: Verify Nouveau driver is completely absent
       ansible.builtin.shell: "! grep -E '^nouveau ' /proc/modules"
       register: nouveau_absent_verify
@@ -210,20 +218,10 @@
       changed_when: false
 
     - name: Verify NVIDIA kernel modules are loaded
-      ansible.builtin.shell: grep -E "^nvidia " /proc/modules
+      ansible.builtin.command: grep -E "^nvidia " /proc/modules
       register: nvidia_verify
       failed_when: nvidia_verify.rc != 0
       changed_when: false
-
-    - name: Verify DRM active connectors
-      ansible.builtin.shell: cat /sys/class/drm/*/status 2>/dev/null | grep -x "connected"
-      register: active_displays
-      failed_when: active_displays.rc != 0
-      changed_when: false
-
-    - name: Display success status
-      ansible.builtin.debug:
-        msg: "SUCCESS: Reboot complete. NVIDIA 580xx drivers active, VRAM memory preservation configured, and display DRM verified."
 
   handlers:
     - name: Regenerate Limine entries

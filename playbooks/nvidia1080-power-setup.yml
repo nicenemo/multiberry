@@ -1,0 +1,107 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Apply NVIDIA GTX 1080 Power Limit & Enable Persistence Mode
+  hosts: gaming_box
+  become: true
+
+  vars:
+    target_power_limit: 180
+    target_persistence_mode: 1
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Environment & Live Status Pre-check
+    # -------------------------------------------------------------------------
+    - name: Locate nvidia-smi binary
+      ansible.builtin.command: which nvidia-smi
+      register: nvidia_smi_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Set nvidia-smi path fact
+      ansible.builtin.set_fact:
+        nvidia_smi_path: "{{ nvidia_smi_cmd.stdout.strip() if nvidia_smi_cmd.rc == 0 else '/usr/bin/nvidia-smi' }}"
+
+    - name: Query current GPU power limit and persistence mode
+      ansible.builtin.command: >
+        {{ nvidia_smi_path }} --query-gpu=power.limit,persistence_mode --format=csv,noheader,nounits
+      register: current_gpu_status
+      changed_when: false
+      failed_when: false
+
+    - name: Parse current GPU facts
+      ansible.builtin.set_fact:
+        current_power_limit: >-
+          {{ current_gpu_status.stdout.split(',')[0] | trim | float | int if (current_gpu_status.rc == 0 and
+          current_gpu_status.stdout.split(',') | length > 0) else 0 }}
+        current_persistence_mode: >-
+          {{ 1 if (current_gpu_status.rc == 0 and current_gpu_status.stdout.split(',') | length > 1 and 'Enabled' in
+          current_gpu_status.stdout.split(',')[1]) else 0 }}
+
+    # -------------------------------------------------------------------------
+    # 2. Live Application (Idempotent)
+    # -------------------------------------------------------------------------
+    - name: Enable NVIDIA persistence mode immediately
+      ansible.builtin.command: "{{ nvidia_smi_path }} -pm {{ target_persistence_mode }}"
+      when: current_persistence_mode != target_persistence_mode
+      changed_when: true
+
+    - name: Set NVIDIA GPU power limit in watts to {{ target_power_limit }}
+      ansible.builtin.command: "{{ nvidia_smi_path }} -pl {{ target_power_limit }}"
+      when: current_power_limit != target_power_limit
+      changed_when: true
+
+    # -------------------------------------------------------------------------
+    # 3. Systemd Service Deployment
+    # -------------------------------------------------------------------------
+    - name: Create systemd service for NVIDIA power limit & persistence mode
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Set NVIDIA GPU Power Limit and Persistence Mode
+          After=systemd-modules-load.service graphical.target
+          Wants=graphical.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStartPre={{ nvidia_smi_path }} -pm {{ target_persistence_mode }}
+          ExecStart={{ nvidia_smi_path }} -pl {{ target_power_limit }}
+
+          [Install]
+          WantedBy=graphical.target
+        dest: /etc/systemd/system/nvidia-powerlimit.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload systemd daemon
+
+    - name: Flush handlers to ensure systemd daemon reload
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start NVIDIA power limit service
+      ansible.builtin.systemd:
+        name: nvidia-powerlimit.service
+        enabled: true
+        state: started
+
+    # -------------------------------------------------------------------------
+    # 4. Verification
+    # -------------------------------------------------------------------------
+    - name: Query live GPU power status
+      ansible.builtin.command: >
+        {{ nvidia_smi_path }} --query-gpu=power.limit,persistence_mode --format=csv,noheader
+      register: gpu_power_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display current live status
+      ansible.builtin.debug:
+        msg: >-
+          SUCCESS: Live GPU Settings applied -> Power Limit / Persistence: {{ gpu_power_status.stdout.strip() if
+          gpu_power_status.rc == 0 else 'N/A' }}
+
+  handlers:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true

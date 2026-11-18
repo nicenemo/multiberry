@@ -1,0 +1,77 @@
+# Dynamically generated via Ansible template from https://ollama.com/library & Hugging Face Hub
+# Max Parameter Size Limit: {{ filter_max_size_b }}B
+# Excluded Age Unit Match: {{ filter_max_age_unit }}
+# Filter Tools Only: {{ filter_tools_only }}
+---
+{%- set ns = namespace(active_models=[], commented_models=[], seen_slugs=[]) -%}
+{%- set active_whitelist = selected_models | default([]) -%}
+{%- set hf_list = hf_models | default([]) -%}
+
+{%- for block in html_content.split('href="/library/')[1:] -%}
+  {%- set slug = block.split('"')[0] | trim -%}
+  {%- if slug not in ns.seen_slugs and '/' not in slug and slug != '' -%}
+    {%- set ns.seen_slugs = ns.seen_slugs + [slug] -%}
+    
+    {# Extract age string #}
+    {%- set age_matches = block | regex_findall('\\d+\\s+(?:second|minute|hour|day|week|month|year)s?\\s+ago') -%}
+    {%- set updated_str = (age_matches[0] if age_matches | length > 0 else 'unknown') | lower -%}
+    
+    {# Detail HTML lookup #}
+    {%- set detail_html = tags_pages_map.get(slug) if (tags_pages_map is defined and tags_pages_map.get(slug)) else block -%}
+    
+    {# Detect Tool Capability Badge #}
+    {%- set has_tools = ('Tools' in block or 'Tools' in detail_html or 'tools' in block or 'tools' in detail_html) -%}
+    
+    {%- set extracted_tags = detail_html | regex_findall('href="/library/' ~ slug ~ ':([a-zA-Z0-9\\.\\_\\-]+)"') | unique -%}
+    
+    {# Extract parameter sizes #}
+    {%- set raw_sizes = detail_html | regex_findall('x-test-size[^>]*>([^<]+)</span>') -%}
+    {%- if raw_sizes | length == 0 -%}
+      {%- set raw_sizes = detail_html | regex_findall('<span[^>]*>([0-9]+(?:\\.[0-9]+)?[bB](?:-[a-zA-Z0-9\\_]+)?)</span>') -%}
+    {%- endif -%}
+    
+    {%- set size_ns = namespace(valid=[]) -%}
+    {%- set all_variants = (extracted_tags + raw_sizes) | unique -%}
+    
+    {%- for s in all_variants -%}
+      {%- set clean_s = s | lower | trim -%}
+      {%- if 'cloud' not in clean_s -%}
+        {%- set num_match = clean_s | regex_findall('([0-9]+(?:\\.[0-9]+)?)b') -%}
+        {%- set num = (num_match[0] | float) if num_match | length > 0 else 0.0 -%}
+        
+        {%- if (num == 0.0 or num <= (filter_max_size_b | float)) and clean_s not in size_ns.valid -%}
+          {%- set size_ns.valid = size_ns.valid + [clean_s] -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+    
+    {%- if size_ns.valid | length > 0 -%}
+      {%- set sorted_sizes = size_ns.valid | sort -%}
+      {%- set selected_tag = slug ~ ':' ~ sorted_sizes[0] -%}
+      
+      {%- set age_ok = (filter_max_age_unit in ['none', '', 'never'] or filter_max_age_unit not in updated_str) -%}
+      {%- set tool_ok = (not filter_tools_only or has_tools) -%}
+      {%- set is_selected = (selected_tag in active_whitelist or slug in active_whitelist) -%}
+      
+      {%- if age_ok and tool_ok and is_selected -%}
+        {%- set ns.active_models = ns.active_models + [selected_tag] -%}
+      {%- else -%}
+        {%- set ns.commented_models = ns.commented_models + [selected_tag] -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endfor %}
+
+{# Combine active scraped models with HuggingFace models and deduplicate #}
+{%- set combined_active = (ns.active_models + hf_list) | unique | sort -%}
+
+ollama_models_to_pull:
+{% for model_tag in combined_active %}
+  - "{{ model_tag }}"
+{% endfor %}
+
+{% for model_tag in ns.commented_models | sort %}
+  {%- if model_tag not in combined_active -%}
+#  - "{{ model_tag }}"
+  {%- endif -%}
+{% endfor %}

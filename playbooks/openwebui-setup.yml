@@ -5,6 +5,7 @@
   become: true
 
   vars:
+    project_root: "{{ playbook_dir | dirname }}"
     open_webui_port: 3000
 
   tasks:
@@ -27,7 +28,7 @@
     # -------------------------------------------------------------------------
     - name: Deploy Open WebUI docker-compose file
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/docker-compose-openwebui.j2"
+        src: "{{ project_root }}/templates/docker-compose-openwebui.j2"
         dest: /opt/data/compose/open-webui/docker-compose.yml
         owner: root
         group: docker
@@ -46,4 +47,4 @@
         rule: allow
         port: "{{ open_webui_port | string }}"
         proto: tcp
-        comment: "Open WebUI access"
+        comment: 'Open WebUI access'

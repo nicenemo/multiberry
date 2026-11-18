@@ -39,11 +39,9 @@
         owner: "{{ item[0].name | default(item[0]) }}"
         group: "{{ item[0].group | default(item[0]) }}"
         mode: '0755'
-      loop: "{{ target_users | product([
-        '.firestorm_viewer',
-        '.config/Firestorm',
-        '.var/app/org.firestormviewer.FirestormViewer'
-      ]) | list }}"
+      loop: >-
+        {{ target_users | product(['.firestorm_viewer', '.config/Firestorm',
+        '.var/app/org.firestormviewer.FirestormViewer']) | list }}
 
     # -------------------------------------------------------------------------
     # 4. CLI Shortcut Creation
@@ -66,6 +64,7 @@
     - name: Refresh KDE launcher cache for active user sessions
       ansible.builtin.command:
         cmd: kbuildsycoca6 --noincremental
+      become: true
       become_user: "{{ item.name | default(item) }}"
       loop: "{{ target_users }}"
       changed_when: false

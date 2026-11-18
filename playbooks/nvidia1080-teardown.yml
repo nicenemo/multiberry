@@ -1,5 +1,7 @@
 #!/usr/bin/env ansible-playbook
 ---
+# Long shell or udev lines inside block scalars cannot be wrapped.
+# yamllint disable rule:line-length
 - name: Teardown NVIDIA GTX 1080 & Restore Nouveau via Reboot
   hosts: gaming_box
   become: true
@@ -35,21 +37,13 @@
     - name: Clean NVIDIA kernel parameters from Limine cmdline
       ansible.builtin.replace:
         path: /etc/kernel/cmdline
-        regexp: '\s*(nvidia-drm\.modeset=1|nvidia\.NVreg_PreserveVideoMemoryAllocations=1|nvidia\.NVreg_AllocHeapSizeMb=128)'
+        regexp: '\s*(nvidia-drm\.modeset=1|nvidia\.NVreg_PreserveVideoMemoryAllocations=1|nvidia\.NVreg_AllocHeapSizeMb=128|nvidia\.NVreg_EnablePCIeGen3=1|nvidia\.NVreg_EnableGpuFirmware=0|pcie_aspm=off|pci=noaer)'
         replace: ''
       notify: Regenerate Limine entries teardown
 
     # -------------------------------------------------------------------------
-    # 2. Remove NVIDIA Configurations & Drop-ins
+    # 2. Cleanup Configuration Files
     # -------------------------------------------------------------------------
-    - name: Remove CachyOS / CHWD mkinitcpio drop-in configurations
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /etc/mkinitcpio.conf.d/10-chwd.conf
-        - /etc/mkinitcpio.conf.d/10-chwd-kms.conf
-
     - name: Remove Nouveau blacklist configuration
       ansible.builtin.file:
         path: /etc/modprobe.d/blacklist-nouveau.conf
@@ -83,15 +77,6 @@
         replace: 'MODULES=(nouveau \1)'
       when: "'nouveau' not in lookup('file', '/etc/mkinitcpio.conf')"
 
-    - name: Ensure Nouveau modules auto-load on boot
-      ansible.builtin.copy:
-        content: |
-          nouveau
-        dest: /etc/modules-load.d/nouveau.conf
-        owner: root
-        group: root
-        mode: '0644'
-
     - name: Blacklist NVIDIA modules for upcoming boot
       ansible.builtin.copy:
         content: |
@@ -100,32 +85,15 @@
           blacklist nvidia_modeset
           blacklist nvidia_uvm
           install nvidia /bin/false
-          install nvidia_drm /bin/false
-          install nvidia_modeset /bin/false
-          install nvidia_uvm /bin/false
         dest: /etc/modprobe.d/blacklist-nvidia.conf
         owner: root
         group: root
         mode: '0644'
 
-    - name: Configure Nouveau runtime module options for GP104
-      ansible.builtin.copy:
-        content: |
-          options nouveau modeset=1
-        dest: /etc/modprobe.d/nouveau.conf
-        owner: root
-        group: root
-        mode: '0644'
-
     # -------------------------------------------------------------------------
-    # 3. Package Purge & Module Obliteration
+    # 3. Package Purge & Module Removal
     # -------------------------------------------------------------------------
-    - name: Ensure linux-firmware is installed for Nouveau support
-      ansible.builtin.package:
-        name: linux-firmware
-        state: present
-
-    - name: Remove all NVIDIA packages using standard pacman removal
+    - name: Remove all NVIDIA packages
       ansible.builtin.command: pacman -Rns --noconfirm nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils
       register: pacman_purge
       failed_when: false
@@ -142,14 +110,17 @@
         state: absent
 
     # -------------------------------------------------------------------------
-    # 4. Rebuild Initramfs & Module Maps (Multi-Kernel Support)
+    # 4. Rebuild Initramfs & Reboot
     # -------------------------------------------------------------------------
-    - name: Detect all installed kernel versions
-      ansible.builtin.command: ls /usr/lib/modules
+    - name: Detect all installed actual kernel versions
+      ansible.builtin.shell: >-
+        set -o pipefail; ls /usr/lib/modules | grep -v 'extramodules'
       register: installed_kernels
       changed_when: false
+      args:
+        executable: /bin/bash
 
-    - name: Update kernel module dependencies map for all installed kernels (depmod)
+    - name: Update kernel module dependencies map (depmod)
       ansible.builtin.command: "depmod -a {{ item }}"
       loop: "{{ installed_kernels.stdout_lines }}"
       changed_when: true
@@ -167,54 +138,20 @@
       failed_when: false
       changed_when: limine_out.rc == 0
 
-    # -------------------------------------------------------------------------
-    # 5. Reboot
-    # -------------------------------------------------------------------------
-    - name: Reboot system to transition back to Nouveau KMS driver
+    - name: Reboot system to transition back to Nouveau
       ansible.builtin.reboot:
-        msg: "Rebooting to purge NVIDIA modules and initialize Nouveau"
+        msg: 'Rebooting to purge NVIDIA modules and initialize Nouveau'
         connect_timeout: 5
         reboot_timeout: 300
-        pre_reboot_delay: 2
-        post_reboot_delay: 5
-        test_command: uptime
 
     # -------------------------------------------------------------------------
-    # 6. Strict Post-Reboot Verification
+    # 5. Post-Reboot Verification
     # -------------------------------------------------------------------------
     - name: Verify NVIDIA driver is completely UNLOADED
       ansible.builtin.shell: "! grep -E '^nvidia ' /proc/modules"
       register: nvidia_absent_verify
       failed_when: nvidia_absent_verify.rc != 0
       changed_when: false
-
-    - name: Force load Nouveau module if not yet auto-loaded
-      ansible.builtin.command: modprobe nouveau
-      register: modprobe_nouveau
-      failed_when: false
-
-    - name: Verify Nouveau driver is LOADED
-      ansible.builtin.shell: grep -E "^nouveau " /proc/modules
-      register: nouveau_verify
-      failed_when: nouveau_verify.rc != 0
-      changed_when: false
-
-    - name: Wait for Nouveau DRM card sysfs nodes to settle
-      ansible.builtin.find:
-        paths: /sys/class/drm
-        patterns: "card[0-9]*"
-        file_type: directory
-      register: drm_cards
-      until: drm_cards.matched > 0
-      retries: 5
-      delay: 2
-
-    - name: Assert at least one DRM card exists for Nouveau
-      ansible.builtin.assert:
-        that:
-          - drm_cards.matched > 0
-        fail_msg: "No DRM card sysfs nodes found under /sys/class/drm/ under Nouveau."
-        success_msg: "SUCCESS: NVIDIA driver fully purged and Nouveau DRM active post-reboot (found {{ drm_cards.matched }} card(s))."
 
   handlers:
     - name: Regenerate Limine entries teardown

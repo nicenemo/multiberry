@@ -13,6 +13,15 @@
 - name: Import NVIDIA GTX 1080 Setup
   ansible.builtin.import_playbook: playbooks/nvidia1080-setup.yml
 
+- name: Import NVIDIA GTX 1080 Power Setup
+  ansible.builtin.import_playbook: playbooks/nvidia1080-power-setup.yml
+
+- name: Import CPU Fan LED Controller USB Power Setup
+  ansible.builtin.import_playbook: playbooks/led-controller-usb-setup.yml
+
+- name: Import OpenRGB Setup
+  ansible.builtin.import_playbook: playbooks/openrgb-setup.yml
+
 - name: Import Flatpak Setup
   ansible.builtin.import_playbook: playbooks/flatpak-setup.yml
 

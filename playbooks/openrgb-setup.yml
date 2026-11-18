@@ -1,0 +1,106 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Setup OpenRGB Engine, SDK Server, UniCorne & KDE Integration
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Package Installation
+    # -------------------------------------------------------------------------
+    - name: Install OpenRGB package
+      community.general.pacman:
+        name:
+          - openrgb
+        state: present
+
+    # -------------------------------------------------------------------------
+    # 2. Hardware Access & Permissions (UniCorne QMK / RP2040)
+    # -------------------------------------------------------------------------
+    - name: Deploy udev rule for Boardsource UniCorne (QMK / OpenRGB Lamplight)
+      ansible.builtin.copy:
+        content: |
+          # Boardsource UniCorne (QMK / OpenRGB Lamplight)
+          SUBSYSTEMS=="usb", ATTRS{idVendor}=="4253", MODE:="0666"
+          KERNEL=="hidraw*", ATTRS{idVendor}=="4253", MODE:="0666"
+          # Generic RP2040 HID raw access fallback
+          SUBSYSTEMS=="usb", ATTRS{idVendor}=="2e8a", MODE:="0666"
+          KERNEL=="hidraw*", ATTRS{idVendor}=="2e8a", MODE:="0666"
+        dest: /etc/udev/rules.d/50-unicorne.rules
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - Reload udev rules
+        - Trigger udev subsystem
+
+    # -------------------------------------------------------------------------
+    # 3. OpenRGB SDK Server Systemd User Service
+    # -------------------------------------------------------------------------
+    - name: Create systemd user service directory
+      ansible.builtin.file:
+        path: /etc/systemd/user
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy OpenRGB SDK Background Server user service
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=OpenRGB SDK Headless Background Daemon
+          After=graphical-session.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/openrgb --server --noheadless
+          Restart=on-failure
+          RestartSec=3
+
+          [Install]
+          WantedBy=graphical-session.target
+        dest: /etc/systemd/user/openrgb-sdk.service
+        owner: root
+        group: root
+        mode: '0644'
+
+    # -------------------------------------------------------------------------
+    # 4. Helper Scripts for Moods & Time-of-Day
+    # -------------------------------------------------------------------------
+    - name: Ensure /usr/local/bin directory exists
+      ansible.builtin.file:
+        path: /usr/local/bin
+        state: directory
+        mode: '0755'
+
+    - name: Deploy Day/Night profile switching script
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Helper script to load OpenRGB profiles via CLI or SDK
+          PROFILE_NAME="$1"
+
+          if [ -z "$PROFILE_NAME" ]; then
+              echo "Usage: $0 <ProfileName.orp>"
+              exit 1
+          fi
+
+          /usr/bin/openrgb --profile "$PROFILE_NAME"
+        dest: /usr/local/bin/set-rgb-profile
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: 'OpenRGB & UniCorne setup complete. Start service via: systemctl --user enable --now openrgb-sdk.service'
+
+  handlers:
+    - name: Reload udev rules
+      ansible.builtin.command: udevadm control --reload-rules
+      changed_when: true
+
+    - name: Trigger udev subsystem
+      ansible.builtin.command: udevadm trigger --subsystem-match=usb
+      changed_when: true

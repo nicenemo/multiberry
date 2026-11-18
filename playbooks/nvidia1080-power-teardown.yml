@@ -1,0 +1,93 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Restore Default NVIDIA GTX 1080 Power Limit & Teardown Service
+  hosts: gaming_box
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Environment & Default Power Discovery
+    # -------------------------------------------------------------------------
+    - name: Locate nvidia-smi binary
+      ansible.builtin.command: which nvidia-smi
+      register: nvidia_smi_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Set nvidia-smi path fact
+      ansible.builtin.set_fact:
+        nvidia_smi_path: "{{ nvidia_smi_cmd.stdout.strip() if nvidia_smi_cmd.rc == 0 else '/usr/bin/nvidia-smi' }}"
+
+    - name: Query factory default GPU power limit and live status
+      ansible.builtin.command: >
+        {{ nvidia_smi_path }} --query-gpu=power.default_limit,power.limit,persistence_mode --format=csv,noheader,nounits
+      register: default_gpu_status
+      changed_when: false
+      failed_when: false
+
+    - name: Parse default power limit and live state
+      ansible.builtin.set_fact:
+        factory_default_power: >-
+          {{ default_gpu_status.stdout.split(',')[0] | trim | float | int if (default_gpu_status.rc == 0 and
+          default_gpu_status.stdout.split(',') | length > 0) else 180 }}
+        live_power_limit: >-
+          {{ default_gpu_status.stdout.split(',')[1] | trim | float | int if (default_gpu_status.rc == 0 and
+          default_gpu_status.stdout.split(',') | length > 1) else 0 }}
+        live_persistence_mode: >-
+          {{ 1 if (default_gpu_status.rc == 0 and default_gpu_status.stdout.split(',') | length > 2 and 'Enabled' in
+          default_gpu_status.stdout.split(',')[2]) else 0 }}
+
+    # -------------------------------------------------------------------------
+    # 2. Disable & Remove Systemd Service
+    # -------------------------------------------------------------------------
+    - name: Disable and stop NVIDIA power limit systemd service
+      ansible.builtin.systemd:
+        name: nvidia-powerlimit.service
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Remove systemd service file
+      ansible.builtin.file:
+        path: /etc/systemd/system/nvidia-powerlimit.service
+        state: absent
+      notify: Reload systemd daemon
+
+    - name: Flush handlers to ensure systemd daemon reload
+      ansible.builtin.meta: flush_handlers
+
+    # -------------------------------------------------------------------------
+    # 3. Live Revert to Factory Default Power Limit & Persistence Mode
+    # -------------------------------------------------------------------------
+    - name: Reset NVIDIA GPU power limit in watts to {{ factory_default_power }}
+      ansible.builtin.command: "{{ nvidia_smi_path }} -pl {{ factory_default_power }}"
+      when: live_power_limit != factory_default_power
+      changed_when: true
+      failed_when: false
+
+    - name: Disable NVIDIA persistence mode live
+      ansible.builtin.command: "{{ nvidia_smi_path }} -pm 0"
+      when: live_persistence_mode != 0
+      changed_when: true
+      failed_when: false
+
+    # -------------------------------------------------------------------------
+    # 4. Verification
+    # -------------------------------------------------------------------------
+    - name: Query restored GPU power status
+      ansible.builtin.command: >
+        {{ nvidia_smi_path }} --query-gpu=power.limit,persistence_mode --format=csv,noheader
+      register: gpu_power_restored
+      changed_when: false
+      failed_when: false
+
+    - name: Display restored status
+      ansible.builtin.debug:
+        msg: >-
+          TEARDOWN COMPLETE: GPU Power Limit restored -> {{ gpu_power_restored.stdout.strip() if gpu_power_restored.rc
+          == 0 else 'N/A' }}
+
+  handlers:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true

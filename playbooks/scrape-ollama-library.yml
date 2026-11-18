@@ -1,39 +1,155 @@
 #!/usr/bin/env ansible-playbook
 ---
-- name: Scrape Ollama Web Library and Generate Models Variable File
+- name: Scrape Ollama Web Library and Generate Models Variable Files
   hosts: gaming_box
   gather_facts: false
   become: false
 
   vars:
-    output_vars_file: "{{ playbook_dir }}/../vars/ollama_models.yml"
-    template_file: "{{ playbook_dir }}/../templates/ollama_models.yml.j2"
+    output_catalog_file: "{{ playbook_dir }}/../vars/ollama_models.yml"
+    output_pull_file: "{{ playbook_dir }}/../vars/ollama_pull.yml"
+    catalog_template: "{{ playbook_dir }}/../templates/ollama_models.yml.j2"
+    pull_template: "{{ playbook_dir }}/../templates/ollama_pull.yml.j2"
+    cache_dir: "{{ playbook_dir }}/.cache_ollama"
+    cache_max_age_seconds: 86400  # 1 day in seconds
 
   tasks:
-    - name: Ensure target vars directory exists
+    - name: Ensure target vars and cache directories exist
       ansible.builtin.file:
-        path: "{{ output_vars_file | dirname }}"
+        path: "{{ item }}"
         state: directory
         mode: '0755'
       delegate_to: localhost
+      loop:
+        - "{{ output_catalog_file | dirname }}"
+        - "{{ cache_dir }}"
 
-    - name: Fetch live HTML catalog from Ollama web library
+    - name: Check if main library cache file exists and is recent
+      ansible.builtin.find:
+        paths: "{{ cache_dir }}"
+        patterns: 'main_library.html'
+        age: "-{{ cache_max_age_seconds }}s"
+      delegate_to: localhost
+      register: main_cache_find
+
+    - name: Fetch live HTML catalog from Ollama main library (if cache expired/missing)
       ansible.builtin.uri:
-        url: "https://ollama.com/library"
+        url: 'https://ollama.com/library'
         method: GET
         return_content: true
         headers:
-          User-Agent: "Mozilla/5.0 (X11; Linux x86_64) Ansible-Catalog-Scraper"
+          User-Agent: 'Mozilla/5.0 (X11; Linux x86_64) Ansible-Catalog-Scraper'
       delegate_to: localhost
-      register: ollama_web_page
+      register: ollama_main_page_live
+      when: main_cache_find.matched == 0
 
-    - name: Render dynamic catalog directly into vars file via Jinja template
+    - name: Cache main library HTML locally
+      ansible.builtin.copy:
+        content: "{{ ollama_main_page_live.content }}"
+        dest: "{{ cache_dir }}/main_library.html"
+        mode: '0644'
+      delegate_to: localhost
+      when: main_cache_find.matched == 0
+
+    - name: Load main library HTML from cache
+      ansible.builtin.slurp:
+        src: "{{ cache_dir }}/main_library.html"
+      delegate_to: localhost
+      register: main_library_slurp
+
+    - name: Extract unique model slugs from main library
+      ansible.builtin.set_fact:
+        ollama_main_html: "{{ main_library_slurp.content | b64decode }}"
+        ollama_slugs: >-
+          {{
+            (main_library_slurp.content | b64decode)
+            | regex_findall('href="/library/([a-zA-Z0-9\.\_\-]+)"')
+            | unique
+            | reject('eq', '')
+            | list
+            | sort
+          }}
+
+    - name: Check cached model tag pages
+      ansible.builtin.find:
+        paths: "{{ cache_dir }}"
+        patterns: 'tag_*.html'
+        age: "-{{ cache_max_age_seconds }}s"
+      delegate_to: localhost
+      register: tags_cache_find
+
+    - name: Map existing valid cache files
+      ansible.builtin.set_fact:
+        cached_tag_slugs: >-
+          {{ tags_cache_find.files | map(attribute='path') | map('basename')
+          | map('regex_replace', '^tag_(.*)\.html$', '\1') | list }}
+
+    - name: Fetch tags pages for missing/expired models
+      ansible.builtin.uri:
+        url: "https://ollama.com/library/{{ item }}/tags"
+        method: GET
+        return_content: true
+        headers:
+          User-Agent: 'Mozilla/5.0 (X11; Linux x86_64) Ansible-Catalog-Scraper'
+      delegate_to: localhost
+      loop: "{{ ollama_slugs }}"
+      when: item not in cached_tag_slugs
+      register: ollama_tags_pages_live
+      ignore_errors: true
+
+    - name: Save newly fetched tag HTML pages to cache
+      ansible.builtin.copy:
+        content: "{{ item.content }}"
+        dest: "{{ cache_dir }}/tag_{{ item.item }}.html"
+        mode: '0644'
+      delegate_to: localhost
+      loop: "{{ ollama_tags_pages_live.results | default([]) }}"
+      when: item.status is defined and item.status == 200
+
+    - name: Read all cached tag HTML files into memory map
+      ansible.builtin.slurp:
+        src: "{{ cache_dir }}/tag_{{ item }}.html"
+      delegate_to: localhost
+      loop: "{{ ollama_slugs }}"
+      register: tag_slurps
+      ignore_errors: true
+
+    - name: Build robust tags HTML map for Jinja template
+      ansible.builtin.set_fact:
+        tags_html_map: >-
+          {% set map = {} %}
+          {% for res in tag_slurps.results %}
+            {% if res.content is defined %}
+              {% set _ = map.update({res.item: (res.content | b64decode)}) %}
+            {% endif %}
+          {% endfor %}
+          {{ map | to_json }}
+
+    - name: Render dynamic catalog into vars file via Jinja template
       ansible.builtin.template:
-        src: "{{ template_file }}"
-        dest: "{{ output_vars_file }}"
+        src: "{{ catalog_template }}"
+        dest: "{{ output_catalog_file }}"
         mode: '0644'
       delegate_to: localhost
       vars:
-        html_content: "{{ ollama_web_page.content }}"
-        filter_max_size_b: "{{ ollama_max_model_param_size_b | default(8) }}"
+        html_content: "{{ ollama_main_html }}"
+        tags_pages_map: "{{ tags_html_map | from_json }}"
+        filter_max_size_b: "{{ ollama_max_model_param_size_b | default(16) }}"
         filter_max_age_unit: "{{ ollama_max_age_unit | default('none') }}"
+        filter_tools_only: "{{ ollama_filter_tools_only | default(true) }}"
+        selected_models: "{{ ollama_selected_models | default([]) }}"
+
+    - name: Render pull list into separate vars file via Jinja template
+      ansible.builtin.template:
+        src: "{{ pull_template }}"
+        dest: "{{ output_pull_file }}"
+        mode: '0644'
+      delegate_to: localhost
+      vars:
+        html_content: "{{ ollama_main_html }}"
+        tags_pages_map: "{{ tags_html_map | from_json }}"
+        filter_max_size_b: "{{ ollama_max_model_param_size_b | default(16) }}"
+        filter_max_age_unit: "{{ ollama_max_age_unit | default('none') }}"
+        filter_tools_only: "{{ ollama_filter_tools_only | default(true) }}"
+        selected_models: "{{ ollama_selected_models | default([]) }}"
+        hf_models: "{{ ollama_hf_models | default([]) }}"

@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 git config core.hooksPath .githooks
-echo "git hooks enabled: .githooks/pre-commit (gitleaks), .githooks/pre-push (trufflehog)"
+echo "git hooks enabled: .githooks/pre-commit (gitleaks, yamllint, ansible-lint), .githooks/pre-push (trufflehog)"

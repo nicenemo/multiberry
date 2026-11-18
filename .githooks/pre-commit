@@ -9,7 +9,11 @@ fi
 
 gitleaks git --staged --redact --no-banner --verbose
 
-# Lint only where the repository has a yamllint configuration.
-if [ -f .yamllint ]; then
-    yamllint . >/dev/null
+yamllint . >/dev/null
+
+if ! command -v ansible-lint >/dev/null 2>&1; then
+    echo "pre-commit: ansible-lint is not installed (sudo pacman -S ansible-lint); refusing to commit unlinted." >&2
+    exit 1
 fi
+
+ansible-lint -q . >/dev/null </dev/null

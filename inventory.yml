@@ -1,3 +1,4 @@
+---
 all:
   vars:
     bootstrap_user: kruse
@@ -24,52 +25,63 @@ all:
           steam_users:
             - kruse
             - giesen
-          ollama_data_path: "/opt/data/ollama"
+
+          # Ollama Package Type: 'normal' (default), 'vulkan', or 'custom'
+          ollama_package_type: 'vulkan'
+
+          ollama_data_path: '/opt/data/ollama'
           ollama_ip_address: 192.168.105.101
           ollama_port: 11434
           ollama_max_model_param_size_b: 8
-          ollama_max_age_unit: "none" 
+          ollama_max_age_unit: 'none'
+
+          # Filter settings
+          ollama_filter_tools_only: true
+
+          # Curated Ollama Library Models (Blog Posts, Demo Code & Presentations)
+          ollama_selected_models:
+            - 'llama3.1:8b'         # Blog posts & creative writing
+            - 'qwen2.5-coder:7b'    # Demo code & agentic code generation
+            - 'mistral:7b'          # Presentation outlines & deck summaries
+            - 'qwen2.5-coder:0.5b'  # Fast/lightweight code fallback
+            - 'llama3.2:1b'         # Ultra-fast lightweight tool agent
+
+          # Direct Hugging Face Downloads (Jina RAG & Embedding Models)
+          ollama_hf_models:
+            - 'hf.co/jinaai/jina-embeddings-v4-text-code-GGUF:Q4_K_M'
+            - 'hf.co/jinaai/jina-embeddings-v4-text-retrieval-GGUF:Q4_K_M'
+            - 'hf.co/jinaai/jina-reranker-v3-GGUF:Q4_K_M'
+
           additional_drives:
-            # - device: "/dev/nvme1n1"
-            #   partition: "/dev/nvme1n1p1"
-            #   mount_path: "/opt/fs2024"
-            #   fstype: "btrfs"
-            #   opts: "defaults,noatime,compress=zstd"
-            #   owner: "kruse"
-            #   group: "kruse"
-            #   mode: "0755"
-            #   model: "NVMe Secondary SSD"
-            #   capacity: "1TB"
+            - device: '/dev/sdb'
+              partition: '/dev/sdb1'
+              mount_path: '/opt/games'
+              fstype: 'btrfs'
+              opts: 'defaults,noatime,compress=zstd'
+              owner: 'root'
+              group: 'games'
+              mode: '2775'
+              model: 'Samsung SSD 860'
+              capacity: '1TB (931.51 GiB)'
 
-            - device: "/dev/sdb"
-              partition: "/dev/sdb1"
-              mount_path: "/opt/games"
-              fstype: "btrfs"
-              opts: "defaults,noatime,compress=zstd"
-              owner: "root"
-              group: "games"
-              mode: "2775"
-              model: "Samsung SSD 860"
-              capacity: "1TB (931.51 GiB)"
+            - device: '/dev/sdc'
+              partition: '/dev/sdc1'
+              mount_path: '/opt/data'
+              fstype: 'ext4'
+              opts: 'defaults,noatime'
+              owner: 'kruse'
+              group: 'kruse'
+              mode: '0755'
+              model: 'Samsung SSD 840'
+              capacity: '256GB (238.47 GiB)'
 
-            - device: "/dev/sdc"
-              partition: "/dev/sdc1"
-              mount_path: "/opt/data"
-              fstype: "ext4"
-              opts: "defaults,noatime"
-              owner: "kruse"
-              group: "kruse"
-              mode: "0755"
-              model: "Samsung SSD 840"
-              capacity: "256GB (238.47 GiB)"
-
-            - device: "/dev/sda"
-              partition: "/dev/sda1"
-              mount_path: "/opt/backups"
-              fstype: "ext4"
-              opts: "defaults,noatime"
-              owner: "giesen"
-              group: "giesen"
-              mode: "0755"
-              model: "WDC WD20EZRX-00D"
-              capacity: "2TB"
+            - device: '/dev/sda'
+              partition: '/dev/sda1'
+              mount_path: '/opt/backups'
+              fstype: 'ext4'
+              opts: 'defaults,noatime'
+              owner: 'giesen'
+              group: 'giesen'
+              mode: '0755'
+              model: 'WDC WD20EZRX-00D'
+              capacity: '2TB'

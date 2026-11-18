@@ -28,6 +28,15 @@
 - name: Import Flatpak Teardown
   ansible.builtin.import_playbook: playbooks/flatpak-teardown.yml
 
+- name: Import OpenRGB Teardown
+  ansible.builtin.import_playbook: playbooks/openrgb-teardown.yml
+
+- name: Import CPU Fan LED Controller USB Power Teardown
+  ansible.builtin.import_playbook: playbooks/led-controller-usb-teardown.yml
+
+- name: Import NVIDIA GTX 1080 Power Teardown
+  ansible.builtin.import_playbook: playbooks/nvidia1080-power-teardown.yml
+
 - name: Import NVIDIA GTX 1080 Teardown
   ansible.builtin.import_playbook: playbooks/nvidia1080-teardown.yml
 

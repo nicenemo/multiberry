@@ -5,6 +5,7 @@
   become: true
 
   vars:
+    project_root: "{{ playbook_dir | dirname }}"
     hermes_telegram_bot_token: ""  # Populate or override via vault/extra-vars if using Telegram
 
   tasks:
@@ -27,7 +28,7 @@
     # -------------------------------------------------------------------------
     - name: Deploy Hermes Agent docker-compose file
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/docker-compose-hermes.j2"
+        src: "{{ project_root }}/templates/docker-compose-hermes.j2"
         dest: /opt/data/compose/hermes/docker-compose.yml
         owner: root
         group: docker

@@ -7,7 +7,7 @@
   tasks:
     - name: Remove wlsunset package
       ansible.builtin.command:
-        cmd: "pacman -Rc --noconfirm wlsunset"
+        cmd: 'pacman -Rc --noconfirm wlsunset'
       register: pacman_remove_wlsunset
       changed_when: "'removing' in pacman_remove_wlsunset.stdout"
       failed_when:

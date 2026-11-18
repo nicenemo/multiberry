@@ -5,7 +5,7 @@
   become: true
 
   vars:
-    limine_default_entry: "CachyOS/linux-cachyos"
+    limine_default_entry: 'CachyOS/linux-cachyos'
 
   tasks:
     # -------------------------------------------------------------------------
@@ -56,8 +56,8 @@
       ansible.builtin.find:
         paths: /usr/lib/modules
         file_type: directory
-        patterns: "*cachyos*"
-        excludes: "*lts*"
+        patterns: '*cachyos*'
+        excludes: '*lts*'
       register: kernel_module_dirs
 
     - name: Extract target kernel release string
@@ -104,7 +104,7 @@
         path: /boot/limine.conf
         regexp: '^\s*default_entry\s*:.*$'
         line: "default_entry: {{ limine_default_entry }}"
-        insertafter: "^timeout:"
+        insertafter: '^timeout:'
         state: present
       register: limine_default_entry_set
 
@@ -132,7 +132,7 @@
     # -------------------------------------------------------------------------
     - name: Reboot system into new optimized kernel
       ansible.builtin.reboot:
-        msg: "Rebooting to boot into linux-cachyos with the Limine kernel parameters"
+        msg: 'Rebooting to boot into linux-cachyos with the Limine kernel parameters'
         connect_timeout: 5
         reboot_timeout: 300
         pre_reboot_delay: 2

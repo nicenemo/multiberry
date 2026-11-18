@@ -5,8 +5,8 @@
   become: true
 
   vars:
-    build_user: "pkgbuilder"
-    pkg_output_dir: "/var/cache/custom-packages"
+    build_user: 'pkgbuilder'
+    pkg_output_dir: '/var/cache/custom-packages'
 
   tasks:
     - name: Remove unprivileged build user and home directory

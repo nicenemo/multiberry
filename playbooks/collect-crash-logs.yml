@@ -1,0 +1,129 @@
+#!/usr/bin/env ansible-playbook
+---
+# Long shell or udev lines inside block scalars cannot be wrapped.
+# yamllint disable rule:line-length
+- name: Collect Comprehensive Crash & GPU Diagnostics
+  hosts: gaming_box
+  become: true
+  gather_facts: true
+
+  vars:
+    log_dir: '/tmp/crash_log_collection'
+    archive_name: "crash_logs_multiberry_{{ ansible_date_time.date }}.tar.gz"
+    local_fetch_path: './crash_logs_multiberry.tar.gz'
+
+  tasks:
+    - name: Ensure temporary log directory exists
+      ansible.builtin.file:
+        path: "{{ log_dir }}"
+        state: directory
+        mode: '0755'
+
+    # -------------------------------------------------------------------------
+    # 1. System, BIOS & PCIe Link Telemetry
+    # -------------------------------------------------------------------------
+    - name: Collect System, BIOS, and Detailed PCIe status
+      ansible.builtin.shell: |
+        echo "=== UNAME ===" > {{ log_dir }}/system_info.txt
+        uname -a >> {{ log_dir }}/system_info.txt
+        echo -e "\n=== BIOS / BOARD ===" >> {{ log_dir }}/system_info.txt
+        dmidecode -t bios -t baseboard >> {{ log_dir }}/system_info.txt 2>&1
+        echo -e "\n=== INXI GPU & SYSTEM SUMMARY ===" >> {{ log_dir }}/system_info.txt
+        inxi -G -Gxx -Fzx >> {{ log_dir }}/system_info.txt 2>&1 || true
+        echo -e "\n=== DETAILED PCIE LINK SPEED & AER ERRORS ===" >> {{ log_dir }}/system_info.txt
+        lspci -vvv -nnk >> {{ log_dir }}/system_info.txt 2>&1 || true
+      failed_when: false
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 2. Comprehensive GPU Hardware State (NVIDIA / AMD / Intel)
+    # -------------------------------------------------------------------------
+    - name: Collect GPU driver state and hardware metrics
+      ansible.builtin.shell: |
+        echo "=== NVIDIA GPU DIAGNOSTICS ===" > {{ log_dir }}/gpu_info.txt
+        timeout 10 nvidia-smi -q >> {{ log_dir }}/gpu_info.txt 2>&1 || true
+        timeout 10 nvidia-smi --query-gpu=timestamp,name,pci.bus_id,driver_version,temperature.gpu,power.draw,power.limit,clocks.gr,clocks.sm,fan.speed,pstate --format=csv >> {{ log_dir }}/gpu_info.txt 2>&1 || true
+
+        echo -e "\n=== AMD / INTEL / DRI STATUS ===" >> {{ log_dir }}/gpu_info.txt
+        timeout 10 rocm-smi >> {{ log_dir }}/gpu_info.txt 2>&1 || true
+        clinfo >> {{ log_dir }}/gpu_info.txt 2>&1 || true
+        glxinfo -B >> {{ log_dir }}/gpu_info.txt 2>&1 || true
+        vulkaninfo --summary >> {{ log_dir }}/gpu_info.txt 2>&1 || true
+      failed_when: false
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 3. Targeted Journalctl Logs with Expanded GPU Regex Filter
+    # -------------------------------------------------------------------------
+    - name: Collect journalctl logs for target dates and extract GPU/PCIe crashes
+      ansible.builtin.shell: |
+        set -o pipefail
+        journalctl --since "2026-10-05 00:00:00" --until "2026-10-07 23:59:59" --no-pager > {{ log_dir }}/journal_oct5_6.log 2>&1 || true
+        grep -iE "NVRM|Xid|nvidia|amdgpu|drm|gfx|ring|fence|kfd|i915|xe|GPU|vga|AER|mcelog|MCE|PCIe|reset|timeout|freeze|hang|page fault" {{ log_dir }}/journal_oct5_6.log > {{ log_dir }}/filtered_gpu_errors.log 2>&1 || true
+      failed_when: false
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 4. Boot History & Kernel Ring Buffer
+    # -------------------------------------------------------------------------
+    - name: Collect boot list, recent boot logs, and dmesg
+      ansible.builtin.shell: |
+        journalctl --list-boots > {{ log_dir }}/boot_list.txt
+        journalctl -b -0 --no-pager > {{ log_dir }}/journal_current_boot.log 2>&1 || true
+        journalctl -b -1 --no-pager > {{ log_dir }}/journal_prev_boot_1.log 2>&1 || true
+        journalctl -b -2 --no-pager > {{ log_dir }}/journal_prev_boot_2.log 2>&1 || true
+        dmesg -T > {{ log_dir }}/dmesg.log 2>&1 || true
+      failed_when: false
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 5. Display Server & GUI Session Logs
+    # -------------------------------------------------------------------------
+    - name: Collect Xorg and Display Manager logs
+      ansible.builtin.shell: |
+        cat /var/log/Xorg.0.log > {{ log_dir }}/Xorg.0.log 2>&1 || true
+        cat /var/log/Xorg.0.log.old > {{ log_dir }}/Xorg.0.log.old 2>&1 || true
+        cp -r /var/log/gpu-manager.log {{ log_dir }}/ 2>&1 || true
+        journalctl -u display-manager --no-pager > {{ log_dir }}/display_manager.log 2>&1 || true
+      failed_when: false
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 6. Core Dumps & Crash Backtraces
+    # -------------------------------------------------------------------------
+    - name: Collect coredump list and stack traces
+      ansible.builtin.shell: |
+        coredumpctl list > {{ log_dir }}/coredumps.txt 2>&1 || true
+        coredumpctl info --no-pager > {{ log_dir }}/coredumps_info.txt 2>&1 || true
+      failed_when: false
+      changed_when: false
+
+    # -------------------------------------------------------------------------
+    # 7. Package Archive & Transport (Fixed Warning)
+    # -------------------------------------------------------------------------
+    - name: Create compressed tarball of all collected logs
+      community.general.archive:
+        path: "{{ log_dir }}"
+        dest: "/tmp/{{ archive_name }}"
+        format: gz
+        mode: '0644'
+
+    - name: Fetch log archive to local control machine
+      ansible.builtin.fetch:
+        src: "/tmp/{{ archive_name }}"
+        dest: "{{ local_fetch_path }}"
+        flat: true
+
+    - name: Clean up temporary remote log directory and tarball
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ log_dir }}"
+        - "/tmp/{{ archive_name }}"
+
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: "Log collection complete without warnings! Local archive saved to: {{ local_fetch_path }}"

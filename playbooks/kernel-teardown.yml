@@ -73,7 +73,7 @@
     # -------------------------------------------------------------------------
     - name: Reboot system to fall back to CachyOS LTS kernel
       ansible.builtin.reboot:
-        msg: "Rebooting to restore linux-cachyos-lts kernel"
+        msg: 'Rebooting to restore linux-cachyos-lts kernel'
         connect_timeout: 5
         reboot_timeout: 300
         pre_reboot_delay: 2

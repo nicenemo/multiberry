@@ -27,10 +27,9 @@
       ansible.builtin.file:
         path: "{{ item[1] }}"
         state: absent
-      loop: "{{ steam_users | product([
-        '/.local/share/Steam/compatibilitytools.d',
-        '/.local/share/Steam/config/libraryfolders.vdf'
-      ]) | list }}"
+      loop: >-
+        {{ steam_users | product(['/.local/share/Steam/compatibilitytools.d',
+        '/.local/share/Steam/config/libraryfolders.vdf']) | list }}
 
     - name: Remove external Steam library directories
       ansible.builtin.file:

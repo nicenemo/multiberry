@@ -8,11 +8,11 @@
   vars:
     # Bepaal het top-level project root pad dynamisch
     project_root: "{{ playbook_dir if not playbook_dir.endswith('playbooks') else playbook_dir ~ '/..' }}"
-    
-    build_user: "pkgbuilder"
-    build_dir: "/var/tmp/ollama-package-build"
-    pkg_output_dir: "/var/cache/custom-packages"
-    local_log_path: "./ollama-build-failure.log"
+
+    build_user: 'pkgbuilder'
+    build_dir: '/var/tmp/ollama-package-build'
+    pkg_output_dir: '/var/cache/custom-packages'
+    local_log_path: './ollama-build-failure.log'
 
     # Backend instellingen (overrijdbaar per host)
     ollama_enable_cuda: true
@@ -22,7 +22,7 @@
     # CUDA architecture:
     # GTX 1080 (Pascal) = "61"
     # Nieuwere NVIDIA kaarten (bijv. RTX 30xx/40xx) = "86;89;90"
-    cuda_architectures: "61"
+    cuda_architectures: '61'
 
   tasks:
     - name: Ensure workspace directory is clean from previous builds
@@ -42,8 +42,10 @@
       ansible.builtin.git:
         repo: 'https://gitlab.archlinux.org/archlinux/packaging/packages/ollama.git'
         dest: "{{ build_dir }}"
+        version: main
         depth: 1
         force: true
+      become: true
       become_user: "{{ build_user }}"
 
     - name: Render custom dynamic PKGBUILD from Jinja2 template
@@ -58,13 +60,15 @@
       ansible.builtin.command:
         cmd: makepkg -Ac -d --noconfirm
         chdir: "{{ build_dir }}"
+      become: true
       become_user: "{{ build_user }}"
       environment:
         PATH: "/opt/cuda/bin:{{ ansible_facts['env']['PATH'] }}"
-        NVARCH: "61-pascal"
+        NVARCH: '61-pascal'
         OLLAMA_CUDA_ARCHITECTURES: "{{ cuda_architectures }}"
       register: makepkg_result
       ignore_errors: true
+      changed_when: true
 
     - name: Save build failure log locally on control node if makepkg failed
       delegate_to: localhost

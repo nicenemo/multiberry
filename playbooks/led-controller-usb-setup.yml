@@ -1,0 +1,68 @@
+#!/usr/bin/env ansible-playbook
+---
+# Long shell or udev lines inside block scalars cannot be wrapped.
+# yamllint disable rule:line-length
+- name: Prevent USB Power Saving on CPU Fan LED Controller
+  hosts: gaming_box
+  become: true
+
+  vars:
+    # Voeg hier eventueel specifieke Vendor ID (idVendor) en Product ID (idProduct) toe als ze afwijken.
+    # Standaard negeren we autosuspend voor bekende LED controllers (AMD Wraith / Cooler Master / Corsair / NZXT)
+    led_usb_rules: |
+      # AMD Wraith Prism / Cooler Master LED Controller
+      ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="2516", ATTR{idProduct}=="0051", ATTR{power/control}="on", ATTR{power/autosuspend}="-1"
+      # Corsair Lighting / Cooler Controllers
+      ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="1b1c", ATTR{power/control}="on", ATTR{power/autosuspend}="-1"
+      # NZXT Smart Device / Kraken LED Controllers
+      ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="1e71", ATTR{power/control}="on", ATTR{power/autosuspend}="-1"
+      # Generieke regel: zet alle bekende USB HID LED-controllers op altijd-aan
+      ACTION=="add|change", SUBSYSTEM=="usb", ATTRS{product}=="*LED*", ATTR{power/control}="on", ATTR{power/autosuspend}="-1"
+      ACTION=="add|change", SUBSYSTEM=="usb", ATTRS{product}=="*Wraith*", ATTR{power/control}="on", ATTR{power/autosuspend}="-1"
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Udev Rule Deployment
+    # -------------------------------------------------------------------------
+    - name: Deploy udev rule to disable USB autosuspend for CPU Fan LED controller
+      ansible.builtin.copy:
+        content: "{{ led_usb_rules }}"
+        dest: /etc/udev/rules.d/99-cpu-fan-led-power.rules
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload udev rules
+
+    # -------------------------------------------------------------------------
+    # 2. Kernel Command Line Adjustment
+    # -------------------------------------------------------------------------
+    - name: Ensure global USB autosuspend delay is disabled in Limine cmdline
+      ansible.builtin.lineinfile:
+        path: /etc/kernel/cmdline
+        backrefs: true
+        regexp: '^(.*?)(?:\s+usbcore\.autosuspend=-1)*$'
+        line: '\1 usbcore.autosuspend=-1'
+      notify: Regenerate Limine entries
+
+    # -------------------------------------------------------------------------
+    # 3. Apply Udev Rules Live
+    # -------------------------------------------------------------------------
+    - name: Flush handlers to trigger udev reload
+      ansible.builtin.meta: flush_handlers
+
+    - name: Trigger udev to apply power settings immediately to connected devices
+      ansible.builtin.command: udevadm trigger --subsystem-match=usb
+      changed_when: true
+
+    - name: Display status
+      ansible.builtin.debug:
+        msg: 'SUCCESS: USB power management disabled for CPU Fan LED controller.'
+
+  handlers:
+    - name: Reload udev rules
+      ansible.builtin.command: udevadm control --reload-rules
+      changed_when: true
+
+    - name: Regenerate Limine entries
+      ansible.builtin.command: limine-entry-tool
+      changed_when: true

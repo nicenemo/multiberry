@@ -1,8 +1,11 @@
 # CachyOS Gaming & AI Node Automation
 
-An automated Infrastructure-as-Code repository built with Ansible to configure a dedicated gaming and AI machine (`multiberry`) running CachyOS. 
+An automated Infrastructure-as-Code repository built with Ansible to configure a dedicated gaming and AI machine
+(`multiberry`) running CachyOS.
 
-This repository streamlines system optimizations, kernel tuning, legacy GPU driver installation, system-wide environment variables, and pre-allocated directory structures specifically tailored for **Microsoft Flight Simulator 2024** and local **Large Language Models (Ollama)**.
+This repository streamlines system optimizations, kernel tuning, legacy GPU driver installation, system-wide environment
+variables, and pre-allocated directory structures specifically tailored for **Microsoft Flight Simulator 2024** and
+local **Large Language Models (Ollama)**.
 
 ---
 
@@ -20,18 +23,31 @@ This repository streamlines system optimizations, kernel tuning, legacy GPU driv
 ## Purpose & Optimization Strategy
 
 ### 1. Microsoft Flight Simulator 2024 (Proton / VKD3D)
-* **Legacy 580xx Driver Stack:** Locks the system to NVIDIA's legacy 580xx proprietary drivers required for Pascal architecture (GTX 1080) under CachyOS, bypassing issues with newer driver branches dropping support or defaulting to non-functional open-source modules.
-* **VKD3D Memory & DXR Overrides:** Sets `VKD3D_CONFIG=dxr0,no_upload_hacks` globally via `/etc/environment.d/` to strip DirectX Raytracing overhead and resolve memory allocation crashes in DirectX 12.
-* **Pre-allocated Cache Directories:** Automatically creates the directory tree required for MSFS 2024 cloud streaming rolling cache to prevent Linux permission stalls.
+
+* **Legacy 580xx Driver Stack:** Locks the system to NVIDIA's legacy 580xx proprietary drivers required for Pascal
+  architecture (GTX 1080) under CachyOS, bypassing issues with newer driver branches dropping support or defaulting to
+  non-functional open-source modules.
+* **VKD3D Memory & DXR Overrides:** Sets `VKD3D_CONFIG=dxr0,no_upload_hacks` globally via `/etc/environment.d/` to strip
+  DirectX Raytracing overhead and resolve memory allocation crashes in DirectX 12.
+* **Pre-allocated Cache Directories:** Automatically creates the directory tree required for MSFS 2024 cloud streaming
+  rolling cache to prevent Linux permission stalls.
 
 ### 2. Local AI & LLM Workloads (Ollama - *Planned*)
-* **Pascal Acceleration:** Prepares the system for CUDA inference offloading using `llama.cpp` / `Ollama`. Optimizes standard CUDA core matrix math for 8B models (e.g., Llama 3.1 8B, DeepSeek-R1 8B) within the 8 GB VRAM buffer, while allowing hybrid CPU/DDR4 system memory offloading for larger models.
-*(Dedicated Ollama installation and model management playbooks will be integrated in a future release.)*
+
+* **Pascal Acceleration:** Prepares the system for CUDA inference offloading using `llama.cpp` / `Ollama`. Optimizes
+  standard CUDA core matrix math for 8B models (e.g., Llama 3.1 8B, DeepSeek-R1 8B) within the 8 GB VRAM buffer, while
+  allowing hybrid CPU/DDR4 system memory offloading for larger models.
+
+Dedicated Ollama installation and model management playbooks will be integrated in a future release.
 
 ### 3. Kernel & System Optimizations
-* **Security Mitigations Disabled (`mitigations=off`):** Applied via `/etc/kernel/cmdline` for Limine to maximize CPU execution throughput on the Ryzen 3700X.
-* **Latency & Frame-Time Tuning:** Applies `pci=rebar`, `split_lock_detect=off`, and `processor.max_cstate=1` to prevent VKD3D micro-stutters and split-lock frame drops.
-* **Developer Environment:** Enforces Neovim (`nvim`) as the system-wide default text editor across shell profiles (`EDITOR`/`VISUAL`).
+
+* **Security Mitigations Disabled (`mitigations=off`):** Applied via `/etc/kernel/cmdline` for Limine to maximize CPU
+  execution throughput on the Ryzen 3700X.
+* **Latency & Frame-Time Tuning:** Applies `pci=rebar`, `split_lock_detect=off`, and `processor.max_cstate=1` to prevent
+  VKD3D micro-stutters and split-lock frame drops.
+* **Developer Environment:** Enforces Neovim (`nvim`) as the system-wide default text editor across shell profiles
+  (`EDITOR`/`VISUAL`).
 
 ---
 
@@ -53,9 +69,9 @@ This repository streamlines system optimizations, kernel tuning, legacy GPU driv
 
 ## Secret scanning
 
-Run `./githooks-setup.sh` once per checkout. The `pre-commit` hook in `.githooks/` runs `gitleaks` on the staged changes
-and the `pre-push` hook runs `trufflehog` on the commits being pushed (`gitleaks` and `trufflehog` must be installed;
-the hooks refuse to run without them). Scan the whole history with `gitleaks git --redact` and
+Run `./githooks-setup.sh` once per checkout. The `pre-commit` hook in `.githooks/` runs `gitleaks` on the staged
+changes, `yamllint` and `ansible-lint`; the `pre-push` hook runs `trufflehog` on the commits being pushed. The hooks
+refuse to run when a tool is missing. Scan the whole history with `gitleaks git --redact` and
 `trufflehog git file://$PWD`. Never bypass the hooks with `--no-verify`.
 
 ## Project page and licence
