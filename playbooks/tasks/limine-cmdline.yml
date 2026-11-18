@@ -1,0 +1,92 @@
+---
+# Adds kernel parameters to the Limine kernel command line, idempotently. Include with:
+#   cmdline_tokens:   list of parameters
+#   cmdline_block_id: name of the managed block, for example "multiberry tuning"
+# Sets limine_cmdline_changed (true when a file changed, so entries must be regenerated).
+#
+# Where the parameters go follows the mikmakmuk setup: when /etc/default/limine has a KERNEL_CMDLINE[default] line,
+# the parameters that are missing there are kept in a managed block in that file, and the same parameters are removed
+# from /etc/kernel/cmdline (which also repairs repeated parameters from earlier non-idempotent runs). Without such a
+# line the parameters stay in /etc/kernel/cmdline, appended only when missing, and repeated parameters are removed.
+# limine_default_path and kernel_cmdline_path can be overridden for testing.
+- name: Check the Limine defaults file and the kernel command line file
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ limine_default_path | default('/etc/default/limine') }}"
+    - "{{ kernel_cmdline_path | default('/etc/kernel/cmdline') }}"
+  register: cmdline_files
+
+- name: Read the Limine defaults file
+  ansible.builtin.slurp:
+    src: "{{ limine_default_path | default('/etc/default/limine') }}"
+  register: limine_default_raw
+  when: cmdline_files.results[0].stat.exists
+
+- name: Determine where the parameters are managed
+  ansible.builtin.set_fact:
+    # The managed block is left out so that its own parameters do not count as already present.
+    limine_other_content: >-
+      {{ (limine_default_raw.content | b64decode | regex_replace('(?s)# BEGIN ' ~ (cmdline_block_id | regex_escape)
+      ~ '.*?# END ' ~ (cmdline_block_id | regex_escape) ~ '\n?', ''))
+      if cmdline_files.results[0].stat.exists else '' }}
+    limine_cmdline_changed: false
+
+- name: Collect the parameters Limine already has
+  ansible.builtin.set_fact:
+    cmdline_in_limine: "{{ limine_other_content is search('(?m)^KERNEL_CMDLINE\\[default\\]\\+?=') }}"
+    limine_present_tokens: >-
+      {{ limine_other_content | regex_findall('(?m)^KERNEL_CMDLINE\[default\]\+?="(.*)"$') | join(' ') | split }}
+
+- name: Keep the missing parameters in a managed block of /etc/default/limine
+  ansible.builtin.blockinfile:
+    path: "{{ limine_default_path | default('/etc/default/limine') }}"
+    marker: "# {mark} {{ cmdline_block_id }}"
+    block: >-
+      KERNEL_CMDLINE[default]+="{{ cmdline_tokens | reject('in', limine_present_tokens) | join(' ') }}"
+    state: "{{ 'present' if (cmdline_tokens | reject('in', limine_present_tokens) | length) > 0 else 'absent' }}"
+  when: cmdline_in_limine | bool
+  register: limine_block
+
+- name: Remove the same parameters from /etc/kernel/cmdline
+  ansible.builtin.replace:
+    path: "{{ kernel_cmdline_path | default('/etc/kernel/cmdline') }}"
+    regexp: '(^|\s+){{ item | regex_escape }}(?=\s|$)'
+    replace: ''
+  loop: "{{ cmdline_tokens }}"
+  when: (cmdline_in_limine | bool) and cmdline_files.results[1].stat.exists
+  register: kernel_cmdline_stripped
+
+# Fallback: no KERNEL_CMDLINE in /etc/default/limine, so /etc/kernel/cmdline holds the parameters.
+- name: Append the missing parameters to /etc/kernel/cmdline
+  ansible.builtin.lineinfile:
+    path: "{{ kernel_cmdline_path | default('/etc/kernel/cmdline') }}"
+    backrefs: true
+    regexp: '^((?!.*(^|\s){{ item | regex_escape }}(\s|$)).*)$'
+    line: '\1 {{ item }}'
+  loop: "{{ cmdline_tokens }}"
+  when: not (cmdline_in_limine | bool) and cmdline_files.results[1].stat.exists
+  register: kernel_cmdline_appended
+
+- name: Read /etc/kernel/cmdline for the duplicate check
+  ansible.builtin.slurp:
+    src: "{{ kernel_cmdline_path | default('/etc/kernel/cmdline') }}"
+  register: kernel_cmdline_raw
+  when: cmdline_files.results[1].stat.exists
+
+# Repairs command lines that earlier, non-idempotent runs filled with repeated parameters.
+- name: Remove duplicate kernel parameters
+  ansible.builtin.copy:
+    dest: "{{ kernel_cmdline_path | default('/etc/kernel/cmdline') }}"
+    content: "{{ (kernel_cmdline_raw.content | b64decode).split() | unique | join(' ') }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: cmdline_files.results[1].stat.exists
+  register: kernel_cmdline_deduplicated
+
+- name: Record whether the Limine entries must be regenerated
+  ansible.builtin.set_fact:
+    limine_cmdline_changed: >-
+      {{ (limine_block is changed) or (kernel_cmdline_stripped is changed) or (kernel_cmdline_appended is changed)
+      or (kernel_cmdline_deduplicated is changed) }}

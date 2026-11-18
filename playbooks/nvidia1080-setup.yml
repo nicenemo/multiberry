@@ -109,33 +109,24 @@
         group: root
         mode: '0644'
 
-    # Each parameter is appended only when it is missing, so repeated runs leave the command line unchanged.
-    - name: Apply NVIDIA parameters to Limine kernel cmdline
-      ansible.builtin.lineinfile:
-        path: /etc/kernel/cmdline
-        backrefs: true
-        regexp: '^((?!.*(^|\s){{ item | regex_escape }}(\s|$)).*)$'
-        line: '\1 {{ item }}'
-      loop:
-        - nvidia-drm.modeset=1
-        - nvidia.NVreg_PreserveVideoMemoryAllocations=1
-        - nvidia.NVreg_AllocHeapSizeMb=128
-      notify: Regenerate Limine entries
+    - name: Read the NVIDIA and PCIe stability kernel parameters
+      ansible.builtin.set_fact:
+        nvidia_cmdline_tokens: >-
+          {{ lookup('ansible.builtin.file', playbook_dir ~ '/../files/nvidia1080-cmdline.conf').splitlines()
+          | map('trim') | reject('match', '(#|$)') | list }}
 
-    - name: Read /etc/kernel/cmdline for the duplicate check
-      ansible.builtin.slurp:
-        src: /etc/kernel/cmdline
-      register: kernel_cmdline_raw
+    # Added to /etc/default/limine like on mikmakmuk, only when missing; see tasks/limine-cmdline.yml.
+    - name: Apply NVIDIA and PCIe stability parameters to Limine kernel cmdline
+      ansible.builtin.include_tasks: tasks/limine-cmdline.yml
+      vars:
+        cmdline_tokens: "{{ nvidia_cmdline_tokens }}"
+        cmdline_block_id: nvidia1080 cmdline
 
-    # Repairs command lines that earlier, non-idempotent runs filled with repeated parameters.
-    - name: Remove duplicate kernel parameters
-      ansible.builtin.copy:
-        dest: /etc/kernel/cmdline
-        content: "{{ (kernel_cmdline_raw.content | b64decode).split() | unique | join(' ') }}\n"
-        owner: root
-        group: root
-        mode: '0644'
-      notify: Regenerate Limine entries
+    - name: Regenerate Limine entries when the command line changed
+      ansible.builtin.command:
+        cmd: limine-entry-tool
+      when: limine_cmdline_changed | bool
+      changed_when: true
 
     - name: Deploy GTX 1080 environment configuration (Wayland & KWin VRAM tweaks)
       ansible.builtin.copy:

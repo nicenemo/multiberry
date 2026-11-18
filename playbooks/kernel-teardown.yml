@@ -25,6 +25,18 @@
     # -------------------------------------------------------------------------
     # 2. Kernel Command Line Revert
     # -------------------------------------------------------------------------
+    - name: Check the Limine defaults file
+      ansible.builtin.stat:
+        path: /etc/default/limine
+      register: limine_default_stat
+
+    - name: Remove the managed "multiberry tuning" block from /etc/default/limine
+      ansible.builtin.blockinfile:
+        path: /etc/default/limine
+        marker: "# {mark} multiberry tuning"
+        state: absent
+      when: limine_default_stat.stat.exists
+
     - name: Revert kernel parameters from /etc/kernel/cmdline
       ansible.builtin.replace:
         path: /etc/kernel/cmdline

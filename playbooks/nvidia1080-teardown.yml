@@ -19,6 +19,19 @@
         - nvidia-resume.service
       failed_when: false
 
+    - name: Check the Limine defaults file
+      ansible.builtin.stat:
+        path: /etc/default/limine
+      register: limine_default_stat
+
+    - name: Remove the managed "nvidia1080 cmdline" block from /etc/default/limine
+      ansible.builtin.blockinfile:
+        path: /etc/default/limine
+        marker: "# {mark} nvidia1080 cmdline"
+        state: absent
+      when: limine_default_stat.stat.exists
+      notify: Regenerate Limine entries teardown
+
     - name: Clean NVIDIA kernel parameters from Limine cmdline
       ansible.builtin.replace:
         path: /etc/kernel/cmdline

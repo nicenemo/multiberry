@@ -4,6 +4,9 @@
   hosts: gaming_box
   become: true
 
+  vars:
+    limine_default_entry: "CachyOS/linux-cachyos"
+
   tasks:
     # -------------------------------------------------------------------------
     # 1. Refresh & Install Optimized Kernel
@@ -33,32 +36,18 @@
         modification_time: preserve
         access_time: preserve
 
-    # Each parameter is appended only when it is missing, so repeated runs leave the command line unchanged.
+    - name: Read the kernel tuning parameters
+      ansible.builtin.set_fact:
+        tuning_tokens: >-
+          {{ lookup('ansible.builtin.file', playbook_dir ~ '/../files/multiberry-tuning.conf').splitlines()
+          | map('trim') | reject('match', '(#|$)') | list }}
+
+    # Added to /etc/default/limine like on mikmakmuk, only when missing; see tasks/limine-cmdline.yml.
     - name: Apply high-performance kernel parameters
-      ansible.builtin.lineinfile:
-        path: /etc/kernel/cmdline
-        backrefs: true
-        regexp: '^((?!.*(^|\s){{ item | regex_escape }}(\s|$)).*)$'
-        line: '\1 {{ item }}'
-      loop:
-        - mitigations=off
-        - pci=rebar
-        - split_lock_detect=off
-        - processor.max_cstate=1
-
-    - name: Read /etc/kernel/cmdline for the duplicate check
-      ansible.builtin.slurp:
-        src: /etc/kernel/cmdline
-      register: kernel_cmdline_raw
-
-    # Repairs command lines that earlier, non-idempotent runs filled with repeated parameters.
-    - name: Remove duplicate kernel parameters
-      ansible.builtin.copy:
-        dest: /etc/kernel/cmdline
-        content: "{{ (kernel_cmdline_raw.content | b64decode).split() | unique | join(' ') }}\n"
-        owner: root
-        group: root
-        mode: '0644'
+      ansible.builtin.include_tasks: tasks/limine-cmdline.yml
+      vars:
+        cmdline_tokens: "{{ tuning_tokens }}"
+        cmdline_block_id: multiberry tuning
 
     # -------------------------------------------------------------------------
     # 3. Generic DKMS Module Rebuild & Initramfs
@@ -110,29 +99,57 @@
         regexp: '^\s*remember_last_entry\s*:\s*.*$'
         replace: 'remember_last_entry: no'
 
-    - name: Set default_entry to 2 (first kernel inside CachyOS group)
-      ansible.builtin.replace:
+    - name: Ensure default_entry is explicitly set in /boot/limine.conf after regeneration
+      ansible.builtin.lineinfile:
         path: /boot/limine.conf
-        regexp: '^\s*default_entry\s*:\s*.*$'
-        replace: 'default_entry: 2'
+        regexp: '^\s*default_entry\s*:.*$'
+        line: "default_entry: {{ limine_default_entry }}"
+        insertafter: "^timeout:"
+        state: present
+      register: limine_default_entry_set
 
-    # -------------------------------------------------------------------------
-    # 5. Reboot & Kernel Verification
-    # -------------------------------------------------------------------------
-    - name: Reboot system into new optimized kernel
-      ansible.builtin.reboot:
-        msg: "Rebooting to boot into linux-cachyos kernel"
-        connect_timeout: 5
-        reboot_timeout: 300
-        pre_reboot_delay: 2
-        post_reboot_delay: 5
-        test_command: uptime
+    - name: Read the running kernel and its command line
+      ansible.builtin.slurp:
+        src: /proc/cmdline
+      register: proc_cmdline_raw
 
     - name: Get running kernel version
       ansible.builtin.command:
         cmd: uname -r
       register: active_kernel
       changed_when: false
+
+    # Only reboot when something that needs a reboot changed or is not yet active.
+    - name: Determine whether a reboot is required
+      ansible.builtin.set_fact:
+        requires_reboot: >-
+          {{ (limine_cmdline_changed | bool) or (limine_default_entry_set is changed)
+          or (tuning_tokens | difference((proc_cmdline_raw.content | b64decode).split()) | length > 0)
+          or ('cachyos' not in active_kernel.stdout) or ('lts' in active_kernel.stdout) }}
+
+    # -------------------------------------------------------------------------
+    # 5. Reboot & Kernel Verification
+    # -------------------------------------------------------------------------
+    - name: Reboot system into new optimized kernel
+      ansible.builtin.reboot:
+        msg: "Rebooting to boot into linux-cachyos with the Limine kernel parameters"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 2
+        post_reboot_delay: 5
+        test_command: uptime
+      when: requires_reboot | bool
+
+    - name: Get running kernel version after the reboot
+      ansible.builtin.command:
+        cmd: uname -r
+      register: active_kernel
+      changed_when: false
+
+    - name: Read the running kernel command line after the reboot
+      ansible.builtin.slurp:
+        src: /proc/cmdline
+      register: live_cmdline_raw
 
     - name: Verify running kernel is linux-cachyos
       ansible.builtin.assert:
@@ -141,3 +158,12 @@
           - "'cachyos' in active_kernel.stdout"
         fail_msg: "Failed to boot into optimized kernel. Active kernel: {{ active_kernel.stdout }}"
         success_msg: "Successfully booted into optimized kernel: {{ active_kernel.stdout }}"
+
+    - name: Verify all tuning parameters are active in /proc/cmdline
+      ansible.builtin.assert:
+        that:
+          - tuning_tokens | difference((live_cmdline_raw.content | b64decode).split()) | length == 0
+        fail_msg: >-
+          Missing parameters in /proc/cmdline:
+          {{ tuning_tokens | difference((live_cmdline_raw.content | b64decode).split()) | join(' ') }}
+        success_msg: "All {{ tuning_tokens | length }} tuning parameters are active in /proc/cmdline"

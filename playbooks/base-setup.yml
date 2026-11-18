@@ -109,34 +109,24 @@
         modification_time: preserve
         access_time: preserve
 
-    # Each parameter is appended only when it is missing, so repeated runs leave the command line unchanged.
+    - name: Read the kernel tuning parameters
+      ansible.builtin.set_fact:
+        tuning_tokens: >-
+          {{ lookup('ansible.builtin.file', playbook_dir ~ '/../files/multiberry-tuning.conf').splitlines()
+          | map('trim') | reject('match', '(#|$)') | list }}
+
+    # Added to /etc/default/limine like on mikmakmuk, only when missing; see tasks/limine-cmdline.yml.
     - name: Apply high-performance kernel parameters
-      ansible.builtin.lineinfile:
-        path: /etc/kernel/cmdline
-        backrefs: true
-        regexp: '^((?!.*(^|\s){{ item | regex_escape }}(\s|$)).*)$'
-        line: '\1 {{ item }}'
-      loop:
-        - mitigations=off
-        - pci=rebar
-        - split_lock_detect=off
-        - processor.max_cstate=1
-      notify: Regenerate Limine entries
+      ansible.builtin.include_tasks: tasks/limine-cmdline.yml
+      vars:
+        cmdline_tokens: "{{ tuning_tokens }}"
+        cmdline_block_id: multiberry tuning
 
-    - name: Read /etc/kernel/cmdline for the duplicate check
-      ansible.builtin.slurp:
-        src: /etc/kernel/cmdline
-      register: kernel_cmdline_raw
-
-    # Repairs command lines that earlier, non-idempotent runs filled with repeated parameters.
-    - name: Remove duplicate kernel parameters
-      ansible.builtin.copy:
-        dest: /etc/kernel/cmdline
-        content: "{{ (kernel_cmdline_raw.content | b64decode).split() | unique | join(' ') }}\n"
-        owner: root
-        group: root
-        mode: '0644'
-      notify: Regenerate Limine entries
+    - name: Regenerate Limine entries when the command line changed
+      ansible.builtin.command:
+        cmd: limine-entry-tool
+      when: limine_cmdline_changed | bool
+      changed_when: true
 
     # -------------------------------------------------------------------------
     # 4. Global System Environment & Profile Config
