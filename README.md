@@ -50,3 +50,10 @@ This repository streamlines system optimizations, kernel tuning, legacy GPU driv
 └── playbooks/
     ├── base-setup.yml          # Core execution tasks (keyrings, kernel, drivers, packages)
     └── base-teardown.yml       # Cleanup and reversion tasks
+
+
+## Project page and licence
+
+`index.html` is the project page, published with GitHub Pages by `.github/workflows/static.yml` (only that file is
+deployed, not the playbooks). The page layout, workflow and licence are the same in all the playbook repositories
+(kos, mikmakmuk, multiberry, samos). Released under the [MIT License](./LICENSE), (c) 2026 Hans Kruse.

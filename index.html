@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>multiberry</title>
+<meta name="description" content="Ansible playbooks for a CachyOS gaming and local AI machine with a GTX 1080.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7fb; --panel: #ffffff; --text: #1b2030; --muted: #5a6478; --line: #d9deea;
+    --accent: #3a56d4; --accent-text: #ffffff; --code: #eef1f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0e14; --panel: #151a26; --text: #e6e9f0; --muted: #9aa4ba; --line: #2a3142;
+            --accent: #8ea2ff; --accent-text: #0b0e14; --code: #1d2434; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+  header { padding: 40px 0 24px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: clamp(2rem, 5vw, 2.6rem); margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { margin: 32px 0 8px; font-size: 1.3rem; }
+  .tag { color: var(--muted); font-size: 1.1rem; margin: 0 0 20px; }
+  .btns a { display: inline-block; margin: 0 8px 8px 0; padding: 8px 16px; border-radius: 8px; text-decoration: none;
+            background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .btns a.alt { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { width: 11rem; color: var(--muted); font-weight: 600; }
+  code, pre { background: var(--code); border-radius: 4px; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+  code { padding: 1px 5px; font-size: .92em; }
+  pre { padding: 12px 14px; overflow-x: auto; border: 1px solid var(--line); }
+  pre code { padding: 0; background: none; }
+  ul { padding-left: 1.2rem; }
+  footer { margin: 40px 0 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>multiberry</h1>
+  <p class="tag">Ansible playbooks for a CachyOS gaming and local AI machine with an NVIDIA GTX 1080.</p>
+  <p class="btns">
+    <a href="https://github.com/nicenemo/multiberry">Repository</a>
+    <a class="alt" href="https://github.com/nicenemo/multiberry/tree/main/playbooks">Playbooks</a>
+  </p>
+</div></header>
+<main class="wrap">
+  <h2>Hardware</h2>
+  <table>
+    <tr><th>Machine</th><td>multiberry</td></tr>
+    <tr><th>CPU</th><td>AMD Ryzen 7 3700X (8 cores / 16 threads)</td></tr>
+    <tr><th>Memory</th><td>32 GB DDR4-3200</td></tr>
+    <tr><th>Graphics</th><td>NVIDIA GeForce GTX 1080 (Pascal, 8 GB)</td></tr>
+    <tr><th>System</th><td>CachyOS, Limine</td></tr>
+  </table>
+
+  <h2>What it sets up</h2>
+  <ul>
+    <li><b>Base:</b> keyrings, upgrade, users and groups, extra drives, kernel options, Neovim as editor</li>
+    <li><b>Graphics:</b> legacy NVIDIA 580xx driver stack for Pascal, Wayland stability, game tuning</li>
+    <li><b>Gaming:</b> Steam, Microsoft Flight Simulator 2024 through Proton, Firestorm viewer, wlsunset</li>
+    <li><b>Local AI:</b> Ollama built as a package, model management, Open WebUI, agents in Docker</li>
+    <li><b>Desktop:</b> Flatpak, Google Chrome, Docker</li>
+  </ul>
+  <p>Every setup playbook has a teardown.</p>
+
+  <h2>Usage</h2>
+<pre><code>./ansible-user-setup.yml -K     # create the ansible user (needs your sudo password)
+./setup.yml                     # run every setup playbook
+./teardown.yml                  # revert it</code></pre>
+</main>
+<footer><div class="wrap">
+  <p>MIT licence. &copy; 2026 <a href="https://hanskruse.eu">Hans Kruse</a></p>
+</div></footer>
+</body>
+</html>
