@@ -109,12 +109,32 @@
         group: root
         mode: '0644'
 
+    # Each parameter is appended only when it is missing, so repeated runs leave the command line unchanged.
     - name: Apply NVIDIA parameters to Limine kernel cmdline
       ansible.builtin.lineinfile:
         path: /etc/kernel/cmdline
         backrefs: true
-        regexp: '^(.*)$'
-        line: '\1 nvidia-drm.modeset=1 nvidia.NVreg_PreserveVideoMemoryAllocations=1 nvidia.NVreg_AllocHeapSizeMb=128'
+        regexp: '^((?!.*(^|\s){{ item | regex_escape }}(\s|$)).*)$'
+        line: '\1 {{ item }}'
+      loop:
+        - nvidia-drm.modeset=1
+        - nvidia.NVreg_PreserveVideoMemoryAllocations=1
+        - nvidia.NVreg_AllocHeapSizeMb=128
+      notify: Regenerate Limine entries
+
+    - name: Read /etc/kernel/cmdline for the duplicate check
+      ansible.builtin.slurp:
+        src: /etc/kernel/cmdline
+      register: kernel_cmdline_raw
+
+    # Repairs command lines that earlier, non-idempotent runs filled with repeated parameters.
+    - name: Remove duplicate kernel parameters
+      ansible.builtin.copy:
+        dest: /etc/kernel/cmdline
+        content: "{{ (kernel_cmdline_raw.content | b64decode).split() | unique | join(' ') }}\n"
+        owner: root
+        group: root
+        mode: '0644'
       notify: Regenerate Limine entries
 
     - name: Deploy GTX 1080 environment configuration (Wayland & KWin VRAM tweaks)
